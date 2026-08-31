@@ -7,6 +7,7 @@ import type { ProfileDraft } from './profile'
 import type { MeasurementPoint } from './trends'
 import { mergeHistory } from './history'
 import type { HistoryDay } from './history'
+import type { WorkoutPlan, WorkoutPlanDraft } from './workouts'
 
 const url = import.meta.env.VITE_SUPABASE_URL
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -24,7 +25,7 @@ export async function requestMagicLink(email: string) {
 export async function loadToday(userId: string, date: string) {
   if (!supabase) return { checkin: null, measurement: null, latestMeasurement: null }
   const [checkinResult, measurementResult, latestMeasurementResult] = await Promise.all([
-    supabase.from('daily_checkins').select('status,duration_minutes,sleep_minutes,energy_rating,soreness_rating,notes').eq('user_id', userId).eq('checkin_date', date).maybeSingle(),
+    supabase.from('daily_checkins').select('plan_id,status,duration_minutes,sleep_minutes,energy_rating,soreness_rating,notes').eq('user_id', userId).eq('checkin_date', date).maybeSingle(),
     supabase.from('body_measurements').select('weight_kg,waist_cm').eq('user_id', userId).eq('measured_on', date).maybeSingle(),
     supabase.from('body_measurements').select('weight_kg').eq('user_id', userId).order('measured_on', { ascending: false }).limit(1).maybeSingle(),
   ])
@@ -97,6 +98,7 @@ export async function saveCheckin(date: string, draft: CheckinDraft) {
     p_energy_rating: values.energyRating,
     p_soreness_rating: values.sorenessRating,
     p_notes: values.notes,
+    p_plan_id: values.planId,
   })
   if (error) throw error
 }
@@ -155,5 +157,27 @@ export async function updateMeal(userId: string, id: string, draft: ManualMealDr
 export async function deleteMeal(userId: string, id: string) {
   if (!supabase) throw new Error('Supabase 尚未配置')
   const { error } = await supabase.from('meal_entries').delete().eq('id', id).eq('user_id', userId)
+  if (error) throw error
+}
+
+export async function loadWorkoutPlans(userId: string): Promise<WorkoutPlan[]> {
+  if (!supabase) return []
+  const { data: plans, error } = await supabase.from('workout_plans').select('id,name,weekday,duration_minutes,is_active').eq('user_id', userId).order('weekday').order('created_at')
+  if (error) throw error
+  if (!plans?.length) return []
+  const { data: items, error: itemsError } = await supabase.from('workout_plan_items').select('plan_id,exercise_name,sets,reps_min,reps_max,sort_order').in('plan_id', plans.map((plan) => plan.id)).order('sort_order')
+  if (itemsError) throw itemsError
+  return plans.map((plan) => ({ id: plan.id, name: plan.name, weekday: String(plan.weekday), durationMinutes: String(plan.duration_minutes), isActive: plan.is_active, items: (items || []).filter((item) => item.plan_id === plan.id).map((item) => ({ exerciseName: item.exercise_name, sets: String(item.sets), repsMin: String(item.reps_min), repsMax: String(item.reps_max) })) }))
+}
+
+export async function saveWorkoutPlan(plan: WorkoutPlanDraft, id?: string) {
+  if (!supabase) throw new Error('Supabase 尚未配置')
+  const { error } = await supabase.rpc('save_workout_plan', { p_plan_id: id || null, p_name: plan.name.trim(), p_weekday: Number(plan.weekday), p_duration_minutes: Number(plan.durationMinutes), p_is_active: plan.isActive, p_items: plan.items })
+  if (error) throw error
+}
+
+export async function deleteWorkoutPlan(userId: string, id: string) {
+  if (!supabase) throw new Error('Supabase 尚未配置')
+  const { error } = await supabase.from('workout_plans').delete().eq('id', id).eq('user_id', userId)
   if (error) throw error
 }

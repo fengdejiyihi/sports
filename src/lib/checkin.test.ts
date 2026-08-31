@@ -6,8 +6,9 @@ import { urlBase64ToUint8Array } from './reminders'
 import { reminderDue } from '../../supabase/functions/send-reminders/due'
 import { trendDelta, trendPoints } from './trends'
 import { mergeHistory } from './history'
+import { emptyWorkoutPlan, validateWorkoutPlan } from './workouts'
 
-const validCheckin = { status: 'completed' as const, durationMinutes: '40', weightKg: '70.7', waistCm: '83.5', sleepHours: '7.2', energy: '4', soreness: '2', notes: '' }
+const validCheckin = { status: 'completed' as const, planId: '', durationMinutes: '40', weightKg: '70.7', waistCm: '83.5', sleepHours: '7.2', energy: '4', soreness: '2', notes: '' }
 
 describe('validateCheckin', () => {
   it('starts a new account without another account’s measurements', () => {
@@ -70,5 +71,12 @@ describe('meal ledger validation', () => {
 describe('check-in history', () => {
   it('keeps one day per check-in and attaches only that day’s measurements', () => {
     expect(mergeHistory([{ date: '2026-08-02', status: 'completed', durationMinutes: 40, sleepMinutes: 420 }, { date: '2026-08-01', status: 'skipped', durationMinutes: null, sleepMinutes: 450 }], [{ date: '2026-08-02', weightKg: 70.5, waistCm: 83 }])).toEqual([{ date: '2026-08-02', status: 'completed', durationMinutes: 40, sleepMinutes: 420, weightKg: 70.5, waistCm: 83 }, { date: '2026-08-01', status: 'skipped', durationMinutes: null, sleepMinutes: 450, weightKg: null, waistCm: null }])
+  })
+})
+
+describe('workout plan validation', () => {
+  it('keeps plan exercises complete before replacing the saved routine', () => {
+    expect(validateWorkoutPlan({ ...emptyWorkoutPlan(), name: '力量 A' })).toBe('请输入 1–80 字的动作名称')
+    expect(validateWorkoutPlan({ ...emptyWorkoutPlan(), name: '力量 A', items: [{ exerciseName: '深蹲', sets: '3', repsMin: '8', repsMax: '12' }] })).toBe('')
   })
 })

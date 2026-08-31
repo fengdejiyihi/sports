@@ -12,10 +12,12 @@ import { loadReminder, saveReminder } from './lib/reminders'
 import type { ReminderSettings } from './lib/reminders'
 import { ageFromBirthDate, emptyProfile, isValidWeight, validateProfile } from './lib/profile'
 import type { ProfileDraft } from './lib/profile'
-import { askNutrition, cloudEnabled, deleteMeal, loadCheckinHistory, loadMeals, loadMeasurements, loadProfile, loadToday, requestMagicLink, saveBodyWeight, saveCheckin, saveManualMeal, saveMeal, saveProfile, subscribeToUserData, supabase, updateMeal } from './lib/supabase'
+import { askNutrition, cloudEnabled, deleteMeal, deleteWorkoutPlan, loadCheckinHistory, loadMeals, loadMeasurements, loadProfile, loadToday, loadWorkoutPlans, requestMagicLink, saveBodyWeight, saveCheckin, saveManualMeal, saveMeal, saveProfile, saveWorkoutPlan, subscribeToUserData, supabase, updateMeal } from './lib/supabase'
 import { trendDelta, trendPoints } from './lib/trends'
 import type { MeasurementPoint } from './lib/trends'
 import type { HistoryDay } from './lib/history'
+import { emptyWorkoutPlan, validateWorkoutPlan, weekdayLabels } from './lib/workouts'
+import type { WorkoutPlan, WorkoutPlanDraft } from './lib/workouts'
 
 const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
 const localKey = `fitness-checkin:${today}`
@@ -29,7 +31,7 @@ function readLocalDraft() {
 
 function App() {
   const requestedPage = new URLSearchParams(location.search).get('page')
-  const [page, setPage] = useState<'today' | 'data' | 'checkin' | 'nutrition' | 'reminders' | 'profile'>(requestedPage === 'checkin' ? 'checkin' : 'today')
+  const [page, setPage] = useState<'today' | 'data' | 'workouts' | 'checkin' | 'nutrition' | 'reminders' | 'profile'>(requestedPage === 'checkin' ? 'checkin' : 'today')
   const [draft, setDraft] = useState<CheckinDraft>(readLocalDraft)
   const [checkinDate, setCheckinDate] = useState(today)
   const [saved, setSaved] = useState(() => Boolean(localStorage.getItem(localKey)))
@@ -73,6 +75,7 @@ function App() {
         const currentWeight = measurement?.weight_kg == null ? latestMeasurement?.weight_kg == null ? empty.weightKg : String(latestMeasurement.weight_kg) : String(measurement.weight_kg)
         setDraft({
           ...empty,
+          planId: checkin?.plan_id || '',
           status: (checkin?.status || empty.status) as CheckinDraft['status'],
           durationMinutes: checkin?.duration_minutes == null ? empty.durationMinutes : String(checkin.duration_minutes),
           weightKg: currentWeight,
@@ -126,7 +129,7 @@ function App() {
 
   const stat = { weight: draft.weightKg, waist: draft.waistCm, sleep: draft.sleepHours }
   const profileIncomplete = Boolean(session && !profileSaved)
-  const navItems = profileIncomplete ? ['profile'] as const : ['today', 'data', 'checkin', 'nutrition', 'reminders', 'profile'] as const
+  const navItems = profileIncomplete ? ['profile'] as const : ['today', 'data', 'workouts', 'checkin', 'nutrition', 'reminders', 'profile'] as const
 
   return <div className="min-h-screen bg-[#f4f7f4] text-[#17211a]">
     <header className="border-b border-[#dce6dd] bg-white">
@@ -137,10 +140,11 @@ function App() {
     </header>
     <main className="mx-auto max-w-5xl px-5 py-8">
       <p className={`mb-5 rounded-xl px-4 py-3 text-sm ${syncMessage.startsWith('同步失败') ? 'bg-[#fff1ef] text-[#a13d2e]' : 'bg-[#e7f2e9] text-[#346748]'}`}>{syncMessage}</p>
-      <nav className="mb-8 flex gap-2 overflow-x-auto" aria-label="主导航">{navItems.map((item) => <button className={`shrink-0 rounded-xl px-4 py-2 text-sm font-semibold ${page === item ? 'bg-[#dff1e4] text-[#1e6743]' : 'bg-white text-[#617065]'}`} key={item} onClick={() => { if (item === 'today' || item === 'checkin') setCheckinDate(today); setPage(item) }} type="button">{{ today: '今日', data: '数据中心', checkin: '每日打卡', nutrition: '饮食账本', reminders: '提醒', profile: '我的资料' }[item]}</button>)}</nav>
+      <nav className="mb-8 flex gap-2 overflow-x-auto" aria-label="主导航">{navItems.map((item) => <button className={`shrink-0 rounded-xl px-4 py-2 text-sm font-semibold ${page === item ? 'bg-[#dff1e4] text-[#1e6743]' : 'bg-white text-[#617065]'}`} key={item} onClick={() => { if (item === 'today' || item === 'checkin') setCheckinDate(today); setPage(item) }} type="button">{{ today: '今日', data: '数据中心', workouts: '训练计划', checkin: '每日打卡', nutrition: '饮食账本', reminders: '提醒', profile: '我的资料' }[item]}</button>)}</nav>
       {page === 'today' && <Today saved={saved} stat={stat} targetWeightKg={profile.targetWeightKg} onCheckin={() => { setCheckinDate(today); setPage('checkin') }} />}
       {page === 'data' && <DataCenter userId={session?.user.id} targetWeightKg={profile.targetWeightKg} onOpenDate={(date) => { setCheckinDate(date); setPage('checkin') }} />}
-      {page === 'checkin' && <Checkin date={checkinDate} draft={draft} errors={errors} saving={saving} setDraft={setDraft} submit={submit} />}
+      {page === 'workouts' && <WorkoutPlans userId={session?.user.id} />}
+      {page === 'checkin' && <Checkin date={checkinDate} draft={draft} errors={errors} saving={saving} setDraft={setDraft} submit={submit} userId={session?.user.id} />}
       {page === 'nutrition' && <Nutrition key={session?.user.id} userId={session?.user.id} stat={stat} profile={profile} />}
       {page === 'reminders' && <Reminders key={session?.user.id} userId={session?.user.id} />}
       {page === 'profile' && <Profile key={session?.user.id} userId={session?.user.id} profile={profile} weightKg={draft.weightKg} setProfile={setProfile} setWeightKg={(weightKg) => setDraft({ ...draft, weightKg })} onSaved={() => setProfileSaved(true)} />}
@@ -227,8 +231,45 @@ function MetricCard({ label, value, detail }: { label: string; value: string; de
 function TrendChart({ label, unit, points, valueKey }: { label: string; unit: string; points: MeasurementPoint[]; valueKey: 'weightKg' | 'waistCm' }) { const values = points.map((point) => point[valueKey]).filter((value): value is number => value != null); return <article className="rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm"><div className="flex items-baseline justify-between gap-3"><h2 className="text-lg font-bold">{label}</h2><span className="text-sm font-semibold text-[#438263]">{values.at(-1)?.toFixed(1)} {unit}</span></div><svg aria-label={label} className="mt-5 h-40 w-full overflow-visible" preserveAspectRatio="none" viewBox="0 0 100 100"><line stroke="#e6eee7" strokeWidth="1" x1="0" x2="100" y1="12" y2="12" /><line stroke="#e6eee7" strokeWidth="1" x1="0" x2="100" y1="50" y2="50" /><line stroke="#e6eee7" strokeWidth="1" x1="0" x2="100" y1="88" y2="88" /><polyline fill="none" points={trendPoints(points, valueKey)} stroke="#256a49" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" vectorEffect="non-scaling-stroke" /></svg><div className="mt-2 flex justify-between text-xs text-[#758378]"><span>{points[0]?.measuredOn.slice(5)}</span><span>{points.at(-1)?.measuredOn.slice(5)}</span></div></article> }
 function formatDelta(value: number, unit: string) { return `${value > 0 ? '+' : ''}${value.toFixed(1)} ${unit}` }
 
-function Checkin({ date, draft, errors, saving, setDraft, submit }: { date: string; draft: CheckinDraft; errors: string[]; saving: boolean; setDraft: (draft: CheckinDraft) => void; submit: (event: FormEvent<HTMLFormElement>) => void }) {
-  return <section className="max-w-3xl"><p className="text-sm font-semibold text-[#438263]">每日记录</p><h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">{date === today ? '完成今天的打卡' : `编辑 ${date} 的打卡`}</h1><p className="mt-3 text-[#647268]">保存后，同一账号登录的设备会自动更新。</p><form className="mt-7 rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm" onSubmit={submit}><div className="grid gap-4 sm:grid-cols-2"><Select label="训练状态" value={draft.status} onChange={(value) => setDraft({ ...draft, status: value as CheckinDraft['status'] })} options={[['completed', '已完成'], ['skipped', '跳过'], ['backfill', '补录']]} /><Field label="训练时长（分钟）" value={draft.durationMinutes} onChange={(value) => setDraft({ ...draft, durationMinutes: value })} /><Field label="体重（kg）" value={draft.weightKg} onChange={(value) => setDraft({ ...draft, weightKg: value })} /><Field label="腰围（cm）" value={draft.waistCm} onChange={(value) => setDraft({ ...draft, waistCm: value })} /><Field label="睡眠（小时）" value={draft.sleepHours} onChange={(value) => setDraft({ ...draft, sleepHours: value })} /><Select label="精力评分" value={draft.energy} onChange={(value) => setDraft({ ...draft, energy: value })} options={[['5', '5 · 精力充沛'], ['4', '4 · 精力不错'], ['3', '3 · 一般'], ['2', '2 · 疲惫'], ['1', '1 · 很差']]} /><Select label="酸痛程度" value={draft.soreness} onChange={(value) => setDraft({ ...draft, soreness: value })} options={[['1', '1 · 几乎没有'], ['2', '2 · 轻微'], ['3', '3 · 明显'], ['4', '4 · 较重'], ['5', '5 · 很重']]} /><label className="sm:col-span-2"><span className="text-sm font-semibold">备注</span><textarea className="mt-2 min-h-24 w-full rounded-xl border border-[#d6e2d8] px-3 py-2.5 outline-none focus:border-[#438263]" onChange={(event) => setDraft({ ...draft, notes: event.target.value })} value={draft.notes} /></label></div>{errors.length > 0 && <p className="mt-4 rounded-xl bg-[#fff1ef] px-4 py-3 text-sm text-[#a13d2e]" role="alert">{errors.join('；')}</p>}<button className="mt-6 rounded-xl bg-[#256a49] px-5 py-3 text-sm font-bold text-white disabled:opacity-60" disabled={saving} type="submit">{saving ? '保存中…' : '保存打卡'}</button></form></section>
+function WorkoutPlans({ userId }: { userId?: string }) {
+  const [plans, setPlans] = useState<WorkoutPlan[]>([])
+  const [draft, setDraft] = useState<WorkoutPlanDraft>(emptyWorkoutPlan)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [message, setMessage] = useState('')
+  const [saving, setSaving] = useState(false)
+  const refresh = async () => { if (!userId) return; try { setPlans(await loadWorkoutPlans(userId)) } catch (error) { setMessage(error instanceof Error ? error.message : '读取训练计划失败') } }
+  useEffect(() => {
+    if (!userId) return
+    let active = true
+    void loadWorkoutPlans(userId).then((nextPlans) => { if (active) setPlans(nextPlans) }).catch((error) => { if (active) setMessage(error instanceof Error ? error.message : '读取训练计划失败') })
+    return () => { active = false }
+  }, [userId])
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const error = validateWorkoutPlan(draft)
+    if (error) { setMessage(error); return }
+    setSaving(true); setMessage('')
+    try { await saveWorkoutPlan(draft, editingId || undefined); await refresh(); setDraft(emptyWorkoutPlan()); setEditingId(null); setMessage(editingId ? '训练计划已更新。' : '训练计划已创建。') }
+    catch (saveError) { setMessage(saveError instanceof Error ? saveError.message : '保存失败') }
+    finally { setSaving(false) }
+  }
+  const edit = (plan: WorkoutPlan) => { setEditingId(plan.id); setDraft({ name: plan.name, weekday: plan.weekday, durationMinutes: plan.durationMinutes, isActive: plan.isActive, items: plan.items }); setMessage('') }
+  const remove = async (id: string) => {
+    if (!userId || !window.confirm('确定删除这个训练计划吗？已有打卡会保留，但不再关联此计划。')) return
+    setSaving(true); setMessage('')
+    try { await deleteWorkoutPlan(userId, id); await refresh(); if (editingId === id) { setEditingId(null); setDraft(emptyWorkoutPlan()) }; setMessage('训练计划已删除。') }
+    catch (error) { setMessage(error instanceof Error ? error.message : '删除失败') }
+    finally { setSaving(false) }
+  }
+  const updateItem = (index: number, key: keyof WorkoutPlanDraft['items'][number], value: string) => setDraft({ ...draft, items: draft.items.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } : item) })
+  return <section className="max-w-3xl"><p className="text-sm font-semibold text-[#438263]">训练安排</p><h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">我的训练计划</h1><p className="mt-3 text-[#647268]">一个计划对应一个训练日；保存后可在每日打卡中选择。</p>{message && <p className="mt-5 rounded-xl bg-[#fff7df] px-4 py-3 text-sm text-[#765b18]" role="status">{message}</p>}<div className="mt-7 space-y-4">{plans.map((plan) => <article className="rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm" key={plan.id}><div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="text-xl font-bold">{plan.name}</h2><p className="mt-2 text-sm text-[#647268]">{weekdayLabels[Number(plan.weekday)]} · {plan.durationMinutes} 分钟 · {plan.isActive ? '已启用' : '已停用'}</p><p className="mt-3 text-sm text-[#526055]">{plan.items.map((item) => `${item.exerciseName} ${item.sets}×${item.repsMin}${item.repsMin === item.repsMax ? '' : `–${item.repsMax}`}`).join(' · ')}</p></div><div className="flex gap-3"><button className="text-sm font-semibold text-[#256a49]" onClick={() => edit(plan)} type="button">编辑</button><button className="text-sm font-semibold text-[#a13d2e]" disabled={saving} onClick={() => { void remove(plan.id) }} type="button">删除</button></div></div></article>)}{!plans.length && <article className="rounded-3xl border border-dashed border-[#cbdccb] bg-white p-6 text-sm text-[#647268]">还没有计划。先创建一个常用训练安排吧。</article>}</div><form className="mt-4 rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm" onSubmit={submit}><h2 className="text-xl font-bold">{editingId ? '编辑训练计划' : '新建训练计划'}</h2><div className="mt-4 grid gap-4 sm:grid-cols-2"><Field label="计划名称" value={draft.name} onChange={(name) => setDraft({ ...draft, name })} /><Select label="训练日" value={draft.weekday} onChange={(weekday) => setDraft({ ...draft, weekday })} options={weekdayLabels.map((label, index) => [String(index), label])} /><Field label="预计时长（分钟）" value={draft.durationMinutes} onChange={(durationMinutes) => setDraft({ ...draft, durationMinutes })} /><label className="flex items-end gap-2 pb-3 text-sm font-semibold"><input checked={draft.isActive} onChange={(event) => setDraft({ ...draft, isActive: event.target.checked })} type="checkbox" />启用这个计划</label></div><div className="mt-6"><div className="flex items-center justify-between gap-3"><h3 className="font-bold">训练动作</h3><button className="text-sm font-semibold text-[#256a49]" onClick={() => setDraft({ ...draft, items: [...draft.items, { exerciseName: '', sets: '3', repsMin: '8', repsMax: '12' }] })} type="button">+ 添加动作</button></div><div className="mt-3 space-y-3">{draft.items.map((item, index) => <div className="grid gap-3 rounded-2xl bg-[#f4f7f4] p-4 sm:grid-cols-[1.4fr_.55fr_.55fr_.55fr_auto]" key={index}><input aria-label={`动作名称 ${index + 1}`} className="rounded-xl border border-[#d6e2d8] bg-white px-3 py-2.5" onChange={(event) => updateItem(index, 'exerciseName', event.target.value)} placeholder="动作名称" value={item.exerciseName} /><input aria-label={`组数 ${index + 1}`} className="rounded-xl border border-[#d6e2d8] bg-white px-3 py-2.5" inputMode="numeric" onChange={(event) => updateItem(index, 'sets', event.target.value)} placeholder="组数" value={item.sets} /><input aria-label={`最少次数 ${index + 1}`} className="rounded-xl border border-[#d6e2d8] bg-white px-3 py-2.5" inputMode="numeric" onChange={(event) => updateItem(index, 'repsMin', event.target.value)} placeholder="最少次数" value={item.repsMin} /><input aria-label={`最多次数 ${index + 1}`} className="rounded-xl border border-[#d6e2d8] bg-white px-3 py-2.5" inputMode="numeric" onChange={(event) => updateItem(index, 'repsMax', event.target.value)} placeholder="最多次数" value={item.repsMax} /><button aria-label={`删除动作 ${index + 1}`} className="rounded-xl px-3 py-2 text-sm font-semibold text-[#a13d2e] disabled:text-[#9aa89d]" disabled={draft.items.length === 1} onClick={() => setDraft({ ...draft, items: draft.items.filter((_, itemIndex) => itemIndex !== index) })} type="button">删除</button></div>)}</div></div><div className="mt-6 flex gap-3"><button className="rounded-xl bg-[#256a49] px-5 py-3 text-sm font-bold text-white disabled:opacity-50" disabled={!userId || saving} type="submit">{saving ? '保存中…' : editingId ? '保存修改' : '创建计划'}</button>{editingId && <button className="rounded-xl bg-[#edf2ed] px-5 py-3 text-sm font-bold text-[#526055]" onClick={() => { setEditingId(null); setDraft(emptyWorkoutPlan()); setMessage('') }} type="button">取消</button>}</div></form></section>
+}
+
+function Checkin({ date, draft, errors, saving, setDraft, submit, userId }: { date: string; draft: CheckinDraft; errors: string[]; saving: boolean; setDraft: (draft: CheckinDraft) => void; submit: (event: FormEvent<HTMLFormElement>) => void; userId?: string }) {
+  const [plans, setPlans] = useState<WorkoutPlan[]>([])
+  useEffect(() => { if (!userId) return; void loadWorkoutPlans(userId).then(setPlans) }, [userId])
+  const planOptions = [['', '不关联训练计划'], ...plans.filter((plan) => plan.isActive || plan.id === draft.planId).map((plan) => [plan.id, `${plan.name} · ${weekdayLabels[Number(plan.weekday)]} · ${plan.durationMinutes} 分钟`])]
+  return <section className="max-w-3xl"><p className="text-sm font-semibold text-[#438263]">每日记录</p><h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">{date === today ? '完成今天的打卡' : `编辑 ${date} 的打卡`}</h1><p className="mt-3 text-[#647268]">保存后，同一账号登录的设备会自动更新。</p><form className="mt-7 rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm" onSubmit={submit}><div className="grid gap-4 sm:grid-cols-2"><Select label="本次训练计划（可选）" value={draft.planId} onChange={(planId) => { const plan = plans.find((item) => item.id === planId); setDraft({ ...draft, planId, durationMinutes: draft.durationMinutes || plan?.durationMinutes || '' }) }} options={planOptions} /><Select label="训练状态" value={draft.status} onChange={(value) => setDraft({ ...draft, status: value as CheckinDraft['status'] })} options={[['completed', '已完成'], ['skipped', '跳过'], ['backfill', '补录']]} /><Field label="训练时长（分钟）" value={draft.durationMinutes} onChange={(value) => setDraft({ ...draft, durationMinutes: value })} /><Field label="体重（kg）" value={draft.weightKg} onChange={(value) => setDraft({ ...draft, weightKg: value })} /><Field label="腰围（cm）" value={draft.waistCm} onChange={(value) => setDraft({ ...draft, waistCm: value })} /><Field label="睡眠（小时）" value={draft.sleepHours} onChange={(value) => setDraft({ ...draft, sleepHours: value })} /><Select label="精力评分" value={draft.energy} onChange={(value) => setDraft({ ...draft, energy: value })} options={[['5', '5 · 精力充沛'], ['4', '4 · 精力不错'], ['3', '3 · 一般'], ['2', '2 · 疲惫'], ['1', '1 · 很差']]} /><Select label="酸痛程度" value={draft.soreness} onChange={(value) => setDraft({ ...draft, soreness: value })} options={[['1', '1 · 几乎没有'], ['2', '2 · 轻微'], ['3', '3 · 明显'], ['4', '4 · 较重'], ['5', '5 · 很重']]} /><label className="sm:col-span-2"><span className="text-sm font-semibold">备注</span><textarea className="mt-2 min-h-24 w-full rounded-xl border border-[#d6e2d8] px-3 py-2.5 outline-none focus:border-[#438263]" onChange={(event) => setDraft({ ...draft, notes: event.target.value })} value={draft.notes} /></label></div>{errors.length > 0 && <p className="mt-4 rounded-xl bg-[#fff1ef] px-4 py-3 text-sm text-[#a13d2e]" role="alert">{errors.join('；')}</p>}<button className="mt-6 rounded-xl bg-[#256a49] px-5 py-3 text-sm font-bold text-white disabled:opacity-60" disabled={saving} type="submit">{saving ? '保存中…' : '保存打卡'}</button></form></section>
 }
 
 function Nutrition({ userId, stat, profile }: { userId?: string; stat: { weight: string; waist: string }; profile: ProfileDraft }) {
