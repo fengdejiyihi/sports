@@ -5,6 +5,7 @@ import { ageFromBirthDate, isValidWeight, validateProfile } from './profile'
 import { urlBase64ToUint8Array } from './reminders'
 import { reminderDue } from '../../supabase/functions/send-reminders/due'
 import { trendDelta, trendPoints } from './trends'
+import { mergeHistory } from './history'
 
 const validCheckin = { status: 'completed' as const, durationMinutes: '40', weightKg: '70.7', waistCm: '83.5', sleepHours: '7.2', energy: '4', soreness: '2', notes: '' }
 
@@ -55,5 +56,11 @@ describe('measurement trends', () => {
     expect(trendDelta(points, 'weightKg')).toBeCloseTo(-0.6)
     expect(trendDelta(points, 'waistCm')).toBeCloseTo(-0.5)
     expect(trendPoints(points, 'weightKg')).not.toBe('')
+  })
+})
+
+describe('check-in history', () => {
+  it('keeps one day per check-in and attaches only that day’s measurements', () => {
+    expect(mergeHistory([{ date: '2026-08-02', status: 'completed', durationMinutes: 40, sleepMinutes: 420 }, { date: '2026-08-01', status: 'skipped', durationMinutes: null, sleepMinutes: 450 }], [{ date: '2026-08-02', weightKg: 70.5, waistCm: 83 }])).toEqual([{ date: '2026-08-02', status: 'completed', durationMinutes: 40, sleepMinutes: 420, weightKg: 70.5, waistCm: 83 }, { date: '2026-08-01', status: 'skipped', durationMinutes: null, sleepMinutes: 450, weightKg: null, waistCm: null }])
   })
 })

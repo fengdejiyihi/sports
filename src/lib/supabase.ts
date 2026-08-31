@@ -5,6 +5,8 @@ import type { DietPlan, FoodAnalysis } from './nutrition'
 import { emptyProfile } from './profile'
 import type { ProfileDraft } from './profile'
 import type { MeasurementPoint } from './trends'
+import { mergeHistory } from './history'
+import type { HistoryDay } from './history'
 
 const url = import.meta.env.VITE_SUPABASE_URL
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -37,6 +39,17 @@ export async function loadMeasurements(userId: string, since: string): Promise<M
   const { data, error } = await supabase.from('body_measurements').select('measured_on,weight_kg,waist_cm').eq('user_id', userId).gte('measured_on', since).order('measured_on')
   if (error) throw error
   return (data || []).map((point) => ({ measuredOn: point.measured_on, weightKg: Number(point.weight_kg), waistCm: point.waist_cm == null ? null : Number(point.waist_cm) }))
+}
+
+export async function loadCheckinHistory(userId: string, since: string): Promise<HistoryDay[]> {
+  if (!supabase) return []
+  const [checkins, measurements] = await Promise.all([
+    supabase.from('daily_checkins').select('checkin_date,status,duration_minutes,sleep_minutes').eq('user_id', userId).gte('checkin_date', since),
+    supabase.from('body_measurements').select('measured_on,weight_kg,waist_cm').eq('user_id', userId).gte('measured_on', since),
+  ])
+  if (checkins.error) throw checkins.error
+  if (measurements.error) throw measurements.error
+  return mergeHistory(checkins.data.map((item) => ({ date: item.checkin_date, status: item.status as 'completed' | 'skipped' | 'backfill', durationMinutes: item.duration_minutes, sleepMinutes: item.sleep_minutes })), measurements.data.map((item) => ({ date: item.measured_on, weightKg: Number(item.weight_kg), waistCm: item.waist_cm == null ? null : Number(item.waist_cm) })))
 }
 
 export async function loadProfile(userId: string): Promise<ProfileDraft> {
