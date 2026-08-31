@@ -4,6 +4,7 @@ import type { CheckinDraft } from './checkin'
 import type { DietPlan, FoodAnalysis } from './nutrition'
 import { emptyProfile } from './profile'
 import type { ProfileDraft } from './profile'
+import type { MeasurementPoint } from './trends'
 
 const url = import.meta.env.VITE_SUPABASE_URL
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -29,6 +30,13 @@ export async function loadToday(userId: string, date: string) {
   if (measurementResult.error) throw measurementResult.error
   if (latestMeasurementResult.error) throw latestMeasurementResult.error
   return { checkin: checkinResult.data, measurement: measurementResult.data, latestMeasurement: latestMeasurementResult.data }
+}
+
+export async function loadMeasurements(userId: string, since: string): Promise<MeasurementPoint[]> {
+  if (!supabase) return []
+  const { data, error } = await supabase.from('body_measurements').select('measured_on,weight_kg,waist_cm').eq('user_id', userId).gte('measured_on', since).order('measured_on')
+  if (error) throw error
+  return (data || []).map((point) => ({ measuredOn: point.measured_on, weightKg: Number(point.weight_kg), waistCm: point.waist_cm == null ? null : Number(point.waist_cm) }))
 }
 
 export async function loadProfile(userId: string): Promise<ProfileDraft> {

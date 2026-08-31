@@ -4,6 +4,7 @@ import { validateImageMeta } from './nutrition'
 import { ageFromBirthDate, isValidWeight, validateProfile } from './profile'
 import { urlBase64ToUint8Array } from './reminders'
 import { reminderDue } from '../../supabase/functions/send-reminders/due'
+import { trendDelta, trendPoints } from './trends'
 
 const validCheckin = { status: 'completed' as const, durationMinutes: '40', weightKg: '70.7', waistCm: '83.5', sleepHours: '7.2', energy: '4', soreness: '2', notes: '' }
 
@@ -45,5 +46,14 @@ describe('reminderDue', () => {
     const now = new Date('2026-08-31T11:35:00Z')
     expect(reminderDue(now, '19:30', 'Asia/Shanghai', [1], null)).toEqual({ date: '2026-08-31', due: true })
     expect(reminderDue(now, '19:30', 'Asia/Shanghai', [1], '2026-08-31').due).toBe(false)
+  })
+})
+
+describe('measurement trends', () => {
+  it('uses only recorded values so an optional waist measurement does not break the trend', () => {
+    const points = [{ measuredOn: '2026-08-01', weightKg: 71, waistCm: 84 }, { measuredOn: '2026-08-02', weightKg: 70.6, waistCm: null }, { measuredOn: '2026-08-03', weightKg: 70.4, waistCm: 83.5 }]
+    expect(trendDelta(points, 'weightKg')).toBeCloseTo(-0.6)
+    expect(trendDelta(points, 'waistCm')).toBeCloseTo(-0.5)
+    expect(trendPoints(points, 'weightKg')).not.toBe('')
   })
 })
