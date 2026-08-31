@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { checkinValues, validateCheckin } from './checkin'
+import { checkinValues, emptyCheckinDraft, validateCheckin } from './checkin'
 import { validateImageMeta } from './nutrition'
 import { urlBase64ToUint8Array } from './reminders'
 import { reminderDue } from '../../supabase/functions/send-reminders/due'
@@ -7,6 +7,9 @@ import { reminderDue } from '../../supabase/functions/send-reminders/due'
 const validCheckin = { status: 'completed' as const, durationMinutes: '40', weightKg: '70.7', waistCm: '83.5', sleepHours: '7.2', energy: '4', soreness: '2', notes: '' }
 
 describe('validateCheckin', () => {
+  it('starts a new account without another account’s measurements', () => {
+    expect(emptyCheckinDraft()).toMatchObject({ weightKg: '', waistCm: '', sleepHours: '', notes: '' })
+  })
   it('rejects impossible measurements before they can distort progress data', () => { expect(validateCheckin({ ...validCheckin, weightKg: '0', sleepHours: '27' })).toEqual(['请输入合理的体重', '睡眠时长应在 0–24 小时之间']) })
   it('accepts a completed daily check-in with valid measurements', () => { expect(validateCheckin(validCheckin)).toEqual([]) })
   it('stores sleep as whole minutes and omits duration for a skipped workout', () => {

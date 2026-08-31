@@ -1,5 +1,9 @@
 export type CheckinDraft = { status: 'completed' | 'skipped' | 'backfill'; durationMinutes: string; weightKg: string; waistCm: string; sleepHours: string; energy: string; soreness: string; notes: string }
 
+export function emptyCheckinDraft(): CheckinDraft {
+  return { status: 'completed', durationMinutes: '', weightKg: '', waistCm: '', sleepHours: '', energy: '4', soreness: '2', notes: '' }
+}
+
 export function checkinValues(draft: CheckinDraft) {
   return {
     status: draft.status,

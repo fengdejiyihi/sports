@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { validateCheckin } from './lib/checkin'
+import { emptyCheckinDraft, validateCheckin } from './lib/checkin'
 import type { CheckinDraft } from './lib/checkin'
 import { fileToDataUrl, validateImageMeta } from './lib/nutrition'
 import type { DietPlan, FoodAnalysis } from './lib/nutrition'
@@ -11,20 +11,10 @@ import { askNutrition, cloudEnabled, loadToday, requestMagicLink, saveCheckin, s
 
 const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
 const localKey = `fitness-checkin:${today}`
-const initialDraft: CheckinDraft = {
-  status: 'completed',
-  durationMinutes: '40',
-  weightKg: '70.7',
-  waistCm: '83.5',
-  sleepHours: '7.2',
-  energy: '4',
-  soreness: '2',
-  notes: '晚餐后训练，状态正常。',
-}
 
 function readLocalDraft() {
   try { return JSON.parse(localStorage.getItem(localKey) || '') as CheckinDraft }
-  catch { return initialDraft }
+  catch { return emptyCheckinDraft() }
 }
 
 function App() {
@@ -37,10 +27,18 @@ function App() {
   const [authReady, setAuthReady] = useState(!cloudEnabled)
   const [saving, setSaving] = useState(false)
   const [syncMessage, setSyncMessage] = useState(cloudEnabled ? '正在连接云端…' : '本地模式 · 配置 Supabase 后启用跨设备同步')
+  const lastUserId = useRef<string | undefined>(undefined)
 
   useEffect(() => {
     if (!supabase) return
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (nextSession?.user.id !== lastUserId.current) {
+        setDraft(emptyCheckinDraft())
+        setSaved(false)
+        setErrors([])
+        setSyncMessage(nextSession ? '正在同步你的数据…' : '正在连接云端…')
+      }
+      lastUserId.current = nextSession?.user.id
       setSession(nextSession)
       setAuthReady(true)
     })
@@ -54,19 +52,18 @@ function App() {
       try {
         const { checkin, measurement } = await loadToday(session.user.id, today)
         if (!active) return
-        if (checkin || measurement) {
-          setDraft((current) => ({
-            ...current,
-            status: (checkin?.status || current.status) as CheckinDraft['status'],
-            durationMinutes: checkin?.duration_minutes == null ? current.durationMinutes : String(checkin.duration_minutes),
-            weightKg: measurement?.weight_kg == null ? current.weightKg : String(measurement.weight_kg),
-            waistCm: measurement?.waist_cm == null ? current.waistCm : String(measurement.waist_cm),
-            sleepHours: checkin?.sleep_minutes == null ? current.sleepHours : String(Number((checkin.sleep_minutes / 60).toFixed(2))),
-            energy: checkin?.energy_rating == null ? current.energy : String(checkin.energy_rating),
-            soreness: checkin?.soreness_rating == null ? current.soreness : String(checkin.soreness_rating),
-            notes: checkin?.notes || '',
-          }))
-        }
+        const empty = emptyCheckinDraft()
+        setDraft({
+          ...empty,
+          status: (checkin?.status || empty.status) as CheckinDraft['status'],
+          durationMinutes: checkin?.duration_minutes == null ? empty.durationMinutes : String(checkin.duration_minutes),
+          weightKg: measurement?.weight_kg == null ? empty.weightKg : String(measurement.weight_kg),
+          waistCm: measurement?.waist_cm == null ? empty.waistCm : String(measurement.waist_cm),
+          sleepHours: checkin?.sleep_minutes == null ? empty.sleepHours : String(Number((checkin.sleep_minutes / 60).toFixed(2))),
+          energy: checkin?.energy_rating == null ? empty.energy : String(checkin.energy_rating),
+          soreness: checkin?.soreness_rating == null ? empty.soreness : String(checkin.soreness_rating),
+          notes: checkin?.notes || '',
+        })
         setSaved(Boolean(checkin || measurement))
         setSyncMessage('云端已同步')
       } catch (error) {
@@ -137,7 +134,7 @@ function Login() {
 }
 
 function Today({ saved, stat, onCheckin }: { saved: boolean; stat: { weight: string; waist: string; sleep: string }; onCheckin: () => void }) {
-  return <section><p className="text-sm font-semibold text-[#438263]">今天 · 减脂计划</p><h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">今天，为 65 kg 前进一步</h1><p className="mt-3 text-[#647268]">完成训练后打卡，身体数据会自动更新。</p>{saved && <p className="mt-5 rounded-xl bg-[#dff1e4] px-4 py-3 text-sm font-semibold text-[#1e6743]">今天的打卡已保存。</p>}<div className="mt-7 grid gap-4 lg:grid-cols-[1.45fr_1fr]"><article className="rounded-3xl bg-[#256a49] p-6 text-white shadow-sm"><h2 className="text-xl font-bold">今晚训练：力量 A</h2><p className="mt-3 max-w-xl text-[#d9f2e1]">深蹲、俯卧撑、划船、臀桥、平板支撑 · 预计 40 分钟</p><button className="mt-6 rounded-xl bg-[#cef1d9] px-4 py-2.5 text-sm font-bold text-[#17452e]" onClick={onCheckin} type="button">开始打卡</button><div className="mt-7 grid grid-cols-3 gap-2 text-sm"><Stat label="本周完成" value={saved ? '3 / 4' : '2 / 4'} /><Stat label="连续打卡" value="12 天" /><Stat label="今日步数" value="4,820" /></div></article><article className="rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm"><h2 className="text-lg font-bold">身体状态</h2><div className="mt-2 divide-y divide-[#edf2ed]"><SummaryRow label="体重" detail="较上周 −0.3 kg" value={`${stat.weight} kg`} /><SummaryRow label="腰围" detail="目标 80 cm" value={`${stat.waist} cm`} /><SummaryRow label="睡眠" detail="昨晚记录" value={`${stat.sleep} h`} /></div></article></div></section>
+  return <section><p className="text-sm font-semibold text-[#438263]">今天 · 减脂计划</p><h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">今天，为自己前进一步</h1><p className="mt-3 text-[#647268]">完成训练后打卡，身体数据会自动更新。</p>{saved && <p className="mt-5 rounded-xl bg-[#dff1e4] px-4 py-3 text-sm font-semibold text-[#1e6743]">今天的打卡已保存。</p>}<div className="mt-7 grid gap-4 lg:grid-cols-[1.45fr_1fr]"><article className="rounded-3xl bg-[#256a49] p-6 text-white shadow-sm"><h2 className="text-xl font-bold">今晚训练：力量 A</h2><p className="mt-3 max-w-xl text-[#d9f2e1]">深蹲、俯卧撑、划船、臀桥、平板支撑 · 预计 40 分钟</p><button className="mt-6 rounded-xl bg-[#cef1d9] px-4 py-2.5 text-sm font-bold text-[#17452e]" onClick={onCheckin} type="button">开始打卡</button></article><article className="rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm"><h2 className="text-lg font-bold">身体状态</h2><div className="mt-2 divide-y divide-[#edf2ed]"><SummaryRow label="体重" detail="今日记录" value={stat.weight ? `${stat.weight} kg` : '未记录'} /><SummaryRow label="腰围" detail="今日记录" value={stat.waist ? `${stat.waist} cm` : '未记录'} /><SummaryRow label="睡眠" detail="今日记录" value={stat.sleep ? `${stat.sleep} h` : '未记录'} /></div></article></div></section>
 }
 
 function Checkin({ draft, errors, saving, setDraft, submit }: { draft: CheckinDraft; errors: string[]; saving: boolean; setDraft: (draft: CheckinDraft) => void; submit: (event: FormEvent<HTMLFormElement>) => void }) {
@@ -179,7 +176,7 @@ function Nutrition({ userId, stat }: { userId?: string; stat: { weight: string; 
     finally { setLoading(false) }
   }
 
-  return <section><p className="text-sm font-semibold text-[#438263]">AI 营养助手</p><h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">今天吃什么，一拍就知道</h1><p className="mt-3 text-[#647268]">建议基于你的减脂目标；图片估算结果需确认后才会保存。</p>{message && <p className="mt-5 rounded-xl bg-[#fff7df] px-4 py-3 text-sm text-[#765b18]" role="status">{message}</p>}<div className="mt-7 grid gap-4 lg:grid-cols-2"><article className="rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">今日饮食推荐</h2><p className="mt-2 text-sm text-[#647268]">当前 {stat.weight} kg · 目标 65 kg</p><button className="mt-5 rounded-xl bg-[#256a49] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50" disabled={!userId || loading} onClick={recommend} type="button">{loading ? '分析中…' : '生成今日三餐'}</button>{plan && <div className="mt-5"><p className="font-bold">目标约 {plan.targetCalories} kcal · 蛋白质 {plan.proteinGrams} g</p><div className="mt-3 divide-y divide-[#edf2ed]">{plan.meals.map((meal) => <div className="py-3" key={meal.name}><div className="flex justify-between gap-3 font-semibold"><span>{meal.name}</span><span>{meal.calories} kcal</span></div><p className="mt-1 text-sm text-[#647268]">{meal.foods} · 蛋白质 {meal.proteinGrams} g</p></div>)}</div><p className="mt-3 text-xs text-[#758378]">{plan.note}</p></div>}</article><article className="rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">拍照识别食物</h2><p className="mt-2 text-sm text-[#647268]">支持相机或相册，图片不会保存到数据库。</p><label className={`mt-5 inline-block rounded-xl px-4 py-2.5 text-sm font-bold text-white ${userId && !loading ? 'cursor-pointer bg-[#256a49]' : 'bg-[#8da398]'}`}>选择食物图片<input accept="image/jpeg,image/png,image/webp" capture="environment" className="sr-only" disabled={!userId || loading} onChange={(event) => { void recognize(event.target.files?.[0]) }} type="file" /></label>{preview && <img alt="待识别食物" className="mt-5 max-h-56 w-full rounded-2xl object-cover" src={preview} />}{analysis && <div className="mt-5"><div className="flex justify-between gap-3 font-bold"><span>{analysis.mealName}</span><span>约 {analysis.totalCalories} kcal</span></div><ul className="mt-3 space-y-2 text-sm">{analysis.items.map((item, index) => <li className="rounded-xl bg-[#f4f7f4] p-3" key={`${item.name}-${index}`}>{item.name} · {item.portion} · {item.calories} kcal · 蛋白质 {item.proteinGrams} g</li>)}</ul><p className="mt-3 text-xs text-[#758378]">{analysis.note}</p><button className="mt-4 rounded-xl bg-[#256a49] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50" disabled={loading} onClick={confirm} type="button">确认并保存</button></div>}</article></div><p className="mt-5 text-xs text-[#758378]">AI 只能估算食物与份量，不能替代称重、营养数据库或医疗建议。</p></section>
+  return <section><p className="text-sm font-semibold text-[#438263]">AI 营养助手</p><h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">今天吃什么，一拍就知道</h1><p className="mt-3 text-[#647268]">建议基于你的减脂目标；图片估算结果需确认后才会保存。</p>{message && <p className="mt-5 rounded-xl bg-[#fff7df] px-4 py-3 text-sm text-[#765b18]" role="status">{message}</p>}<div className="mt-7 grid gap-4 lg:grid-cols-2"><article className="rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">今日饮食推荐</h2><p className="mt-2 text-sm text-[#647268]">当前 {stat.weight ? `${stat.weight} kg` : '未记录体重'} · 请先完成每日打卡完善建议</p><button className="mt-5 rounded-xl bg-[#256a49] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50" disabled={!userId || loading} onClick={recommend} type="button">{loading ? '分析中…' : '生成今日三餐'}</button>{plan && <div className="mt-5"><p className="font-bold">目标约 {plan.targetCalories} kcal · 蛋白质 {plan.proteinGrams} g</p><div className="mt-3 divide-y divide-[#edf2ed]">{plan.meals.map((meal) => <div className="py-3" key={meal.name}><div className="flex justify-between gap-3 font-semibold"><span>{meal.name}</span><span>{meal.calories} kcal</span></div><p className="mt-1 text-sm text-[#647268]">{meal.foods} · 蛋白质 {meal.proteinGrams} g</p></div>)}</div><p className="mt-3 text-xs text-[#758378]">{plan.note}</p></div>}</article><article className="rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">拍照识别食物</h2><p className="mt-2 text-sm text-[#647268]">支持相机或相册，图片不会保存到数据库。</p><label className={`mt-5 inline-block rounded-xl px-4 py-2.5 text-sm font-bold text-white ${userId && !loading ? 'cursor-pointer bg-[#256a49]' : 'bg-[#8da398]'}`}>选择食物图片<input accept="image/jpeg,image/png,image/webp" capture="environment" className="sr-only" disabled={!userId || loading} onChange={(event) => { void recognize(event.target.files?.[0]) }} type="file" /></label>{preview && <img alt="待识别食物" className="mt-5 max-h-56 w-full rounded-2xl object-cover" src={preview} />}{analysis && <div className="mt-5"><div className="flex justify-between gap-3 font-bold"><span>{analysis.mealName}</span><span>约 {analysis.totalCalories} kcal</span></div><ul className="mt-3 space-y-2 text-sm">{analysis.items.map((item, index) => <li className="rounded-xl bg-[#f4f7f4] p-3" key={`${item.name}-${index}`}>{item.name} · {item.portion} · {item.calories} kcal · 蛋白质 {item.proteinGrams} g</li>)}</ul><p className="mt-3 text-xs text-[#758378]">{analysis.note}</p><button className="mt-4 rounded-xl bg-[#256a49] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50" disabled={loading} onClick={confirm} type="button">确认并保存</button></div>}</article></div><p className="mt-5 text-xs text-[#758378]">AI 只能估算食物与份量，不能替代称重、营养数据库或医疗建议。</p></section>
 }
 
 function Reminders({ userId }: { userId?: string }) {
@@ -206,7 +203,6 @@ function Reminders({ userId }: { userId?: string }) {
 }
 
 function CenteredMessage({ text }: { text: string }) { return <div className="grid min-h-screen place-items-center bg-[#f4f7f4] text-[#526055]">{text}</div> }
-function Stat({ label, value }: { label: string; value: string }) { return <div className="rounded-xl bg-white/12 p-3"><span className="text-[#ccebd6]">{label}</span><strong className="mt-1 block">{value}</strong></div> }
 function SummaryRow({ label, detail, value }: { label: string; detail: string; value: string }) { return <div className="flex items-center justify-between gap-3 py-4"><div><p className="font-semibold">{label}</p><p className="mt-1 text-xs text-[#758378]">{detail}</p></div><span className="rounded-full bg-[#e4f3e8] px-3 py-1.5 text-sm font-bold text-[#236843]">{value}</span></div> }
 function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <label><span className="text-sm font-semibold">{label}</span><input className="mt-2 w-full rounded-xl border border-[#d6e2d8] px-3 py-2.5 outline-none focus:border-[#438263]" inputMode="decimal" onChange={(event) => onChange(event.target.value)} value={value} /></label> }
 function Select({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[][] }) { return <label><span className="text-sm font-semibold">{label}</span><select className="mt-2 w-full rounded-xl border border-[#d6e2d8] bg-white px-3 py-2.5 outline-none focus:border-[#438263]" onChange={(event) => onChange(event.target.value)} value={value}>{options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}</select></label> }
