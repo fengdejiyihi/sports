@@ -22,3 +22,8 @@ export function validateProfile(profile: ProfileDraft) {
   if (!Number.isFinite(targetWeight) || targetWeight < 25 || targetWeight > 300) errors.push('请输入合理的目标体重')
   return errors
 }
+
+export function isValidWeight(value: string) {
+  const weight = Number(value)
+  return Number.isFinite(weight) && weight >= 25 && weight <= 300
+}

@@ -19,14 +19,16 @@ export async function requestMagicLink(email: string) {
 }
 
 export async function loadToday(userId: string, date: string) {
-  if (!supabase) return { checkin: null, measurement: null }
-  const [checkinResult, measurementResult] = await Promise.all([
+  if (!supabase) return { checkin: null, measurement: null, latestMeasurement: null }
+  const [checkinResult, measurementResult, latestMeasurementResult] = await Promise.all([
     supabase.from('daily_checkins').select('status,duration_minutes,sleep_minutes,energy_rating,soreness_rating,notes').eq('user_id', userId).eq('checkin_date', date).maybeSingle(),
     supabase.from('body_measurements').select('weight_kg,waist_cm').eq('user_id', userId).eq('measured_on', date).maybeSingle(),
+    supabase.from('body_measurements').select('weight_kg').eq('user_id', userId).order('measured_on', { ascending: false }).limit(1).maybeSingle(),
   ])
   if (checkinResult.error) throw checkinResult.error
   if (measurementResult.error) throw measurementResult.error
-  return { checkin: checkinResult.data, measurement: measurementResult.data }
+  if (latestMeasurementResult.error) throw latestMeasurementResult.error
+  return { checkin: checkinResult.data, measurement: measurementResult.data, latestMeasurement: latestMeasurementResult.data }
 }
 
 export async function loadProfile(userId: string): Promise<ProfileDraft> {
@@ -50,6 +52,12 @@ export async function saveProfile(userId: string, profile: ProfileDraft) {
     height_cm: Number(profile.heightCm),
     target_weight_kg: Number(profile.targetWeightKg),
   })
+  if (error) throw error
+}
+
+export async function saveBodyWeight(userId: string, date: string, weightKg: string) {
+  if (!supabase) throw new Error('Supabase 尚未配置')
+  const { error } = await supabase.from('body_measurements').upsert({ user_id: userId, measured_on: date, weight_kg: Number(weightKg) }, { onConflict: 'user_id,measured_on' })
   if (error) throw error
 }
 

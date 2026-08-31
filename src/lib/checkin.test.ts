@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { checkinValues, emptyCheckinDraft, validateCheckin } from './checkin'
 import { validateImageMeta } from './nutrition'
-import { ageFromBirthDate, validateProfile } from './profile'
+import { ageFromBirthDate, isValidWeight, validateProfile } from './profile'
 import { urlBase64ToUint8Array } from './reminders'
 import { reminderDue } from '../../supabase/functions/send-reminders/due'
 
@@ -28,6 +28,8 @@ describe('validateImageMeta', () => {
 describe('validateProfile', () => {
   it('keeps each user profile within safe recommendation ranges', () => {
     expect(ageFromBirthDate('2000-09-01', new Date('2026-08-31'))).toBe(25)
+    expect(isValidWeight('70.5')).toBe(true)
+    expect(isValidWeight('0')).toBe(false)
     expect(validateProfile({ sex: 'unspecified', birthDate: '2018-01-01', heightCm: '178', targetWeightKg: '65' })).toContain('请输入 14–100 岁范围内的出生日期')
   })
 })
