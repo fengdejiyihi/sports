@@ -41,11 +41,13 @@ export async function loadMeasurements(userId: string, since: string): Promise<M
   return (data || []).map((point) => ({ measuredOn: point.measured_on, weightKg: Number(point.weight_kg), waistCm: point.waist_cm == null ? null : Number(point.waist_cm) }))
 }
 
-export async function loadCheckinHistory(userId: string, since: string): Promise<HistoryDay[]> {
+export async function loadCheckinHistory(userId: string, since: string, until?: string): Promise<HistoryDay[]> {
   if (!supabase) return []
+  const checkinQuery = until ? supabase.from('daily_checkins').select('checkin_date,status,duration_minutes,sleep_minutes').eq('user_id', userId).gte('checkin_date', since).lte('checkin_date', until) : supabase.from('daily_checkins').select('checkin_date,status,duration_minutes,sleep_minutes').eq('user_id', userId).gte('checkin_date', since)
+  const measurementQuery = until ? supabase.from('body_measurements').select('measured_on,weight_kg,waist_cm').eq('user_id', userId).gte('measured_on', since).lte('measured_on', until) : supabase.from('body_measurements').select('measured_on,weight_kg,waist_cm').eq('user_id', userId).gte('measured_on', since)
   const [checkins, measurements] = await Promise.all([
-    supabase.from('daily_checkins').select('checkin_date,status,duration_minutes,sleep_minutes').eq('user_id', userId).gte('checkin_date', since),
-    supabase.from('body_measurements').select('measured_on,weight_kg,waist_cm').eq('user_id', userId).gte('measured_on', since),
+    checkinQuery,
+    measurementQuery,
   ])
   if (checkins.error) throw checkins.error
   if (measurements.error) throw measurements.error

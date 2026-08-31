@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
+import { DayPicker } from '@daypicker/react'
+import { zhCN } from '@daypicker/react/locale'
+import '@daypicker/react/style.css'
 import { emptyCheckinDraft, validateCheckin } from './lib/checkin'
 import type { CheckinDraft } from './lib/checkin'
 import { fileToDataUrl, mealTotals, mealTypeLabels, validateImageMeta, validateManualMeal } from './lib/nutrition'
@@ -16,6 +19,8 @@ import type { HistoryDay } from './lib/history'
 
 const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
 const localKey = `fitness-checkin:${today}`
+const dateFromKey = (value: string) => new Date(`${value}T12:00:00`)
+const dateKey = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
 
 function readLocalDraft() {
   try { return JSON.parse(localStorage.getItem(localKey) || '') as CheckinDraft }
@@ -165,6 +170,8 @@ function DataCenter({ userId, targetWeightKg, onOpenDate }: { userId?: string; t
   const [points, setPoints] = useState<MeasurementPoint[]>([])
   const [history, setHistory] = useState<HistoryDay[]>([])
   const [historyDate, setHistoryDate] = useState(today)
+  const [calendarMonth, setCalendarMonth] = useState(today.slice(0, 7))
+  const [calendarHistory, setCalendarHistory] = useState<HistoryDay[]>([])
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(Boolean(userId))
 
@@ -182,10 +189,38 @@ function DataCenter({ userId, targetWeightKg, onOpenDate }: { userId?: string; t
     return () => { active = false }
   }, [days, userId])
 
+  useEffect(() => {
+    if (!userId) return
+    const [year, month] = calendarMonth.split('-').map(Number)
+    const monthEnd = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10)
+    void loadCheckinHistory(userId, `${calendarMonth}-01`, monthEnd).then(setCalendarHistory).catch((error) => setMessage(error instanceof Error ? error.message : '日历读取失败'))
+  }, [calendarMonth, userId])
+
   const latest = points.at(-1)
   const weightDelta = trendDelta(points, 'weightKg')
   const waistDelta = trendDelta(points, 'waistCm')
-  return <section><p className="text-sm font-semibold text-[#438263]">身体数据</p><h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">数据中心</h1><p className="mt-3 text-[#647268]">基于你已保存的测量与打卡记录计算，不会混入其他账号的数据。</p><div className="mt-5 flex gap-2" aria-label="趋势时间范围">{([7, 30, 90] as const).map((value) => <button className={`rounded-xl px-4 py-2 text-sm font-semibold ${days === value ? 'bg-[#256a49] text-white' : 'bg-white text-[#617065]'}`} key={value} onClick={() => setDays(value)} type="button">{value} 天</button>)}</div>{message && <p className="mt-5 rounded-xl bg-[#fff1ef] px-4 py-3 text-sm text-[#a13d2e]" role="alert">{message}</p>}<div className="mt-7 grid gap-4 sm:grid-cols-3"><MetricCard label="当前体重" value={latest ? `${latest.weightKg.toFixed(1)} kg` : '未记录'} detail={weightDelta == null ? '再记录一次即可看趋势' : `${days} 天 ${formatDelta(weightDelta, 'kg')}`} /><MetricCard label="目标体重" value={targetWeightKg ? `${targetWeightKg} kg` : '未设置'} detail="可在我的资料中修改" /><MetricCard label="当前腰围" value={latest?.waistCm == null ? '未记录' : `${latest.waistCm.toFixed(1)} cm`} detail={waistDelta == null ? '再记录一次即可看趋势' : `${days} 天 ${formatDelta(waistDelta, 'cm')}`} /></div>{loading ? <p className="mt-7 text-sm text-[#647268]">正在读取你的历史记录…</p> : <><div className="mt-7 grid gap-4 lg:grid-cols-2">{points.length < 2 ? <article className="rounded-3xl border border-dashed border-[#cbdccb] bg-white p-6"><h2 className="text-lg font-bold">还没有足够的趋势数据</h2><p className="mt-2 text-sm text-[#647268]">连续记录至少两天体重后，这里会显示你的变化曲线。</p></article> : <><TrendChart label="体重趋势" unit="kg" points={points} valueKey="weightKg" /><TrendChart label="腰围趋势" unit="cm" points={points.filter((point) => point.waistCm != null)} valueKey="waistCm" /></>}<article className="rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm"><h2 className="text-lg font-bold">查看或补录日期</h2><p className="mt-2 text-sm text-[#647268]">选择任意一天，进入原有打卡表单查看或更新数据。</p><div className="mt-5 flex flex-wrap gap-3"><input className="rounded-xl border border-[#d6e2d8] px-3 py-2.5" max={today} onChange={(event) => setHistoryDate(event.target.value)} type="date" value={historyDate} /><button className="rounded-xl bg-[#256a49] px-4 py-2.5 text-sm font-bold text-white" onClick={() => onOpenDate(historyDate)} type="button">查看这一天</button></div></article></div><article className="mt-4 rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm"><h2 className="text-lg font-bold">最近打卡</h2>{history.length ? <div className="mt-3 divide-y divide-[#edf2ed]">{history.slice(0, 7).map((entry) => <button className="flex w-full items-center justify-between gap-3 py-3 text-left" key={entry.date} onClick={() => onOpenDate(entry.date)} type="button"><span><strong className="block">{entry.date}</strong><span className="mt-1 block text-sm text-[#647268]">{entry.status === 'completed' ? `已完成${entry.durationMinutes ? ` · ${entry.durationMinutes} 分钟` : ''}` : entry.status === 'skipped' ? '已跳过' : '补录'} · {entry.weightKg == null ? '未记录体重' : `${entry.weightKg} kg`}</span></span><span className="text-sm font-semibold text-[#438263]">查看</span></button>)}</div> : <p className="mt-3 text-sm text-[#647268]">这个区间还没有打卡记录。</p>}</article></>}</section>
+  const calendarModifiers = {
+    completed: calendarHistory.filter((entry) => entry.status === 'completed').map((entry) => dateFromKey(entry.date)),
+    backfill: calendarHistory.filter((entry) => entry.status === 'backfill').map((entry) => dateFromKey(entry.date)),
+    skipped: calendarHistory.filter((entry) => entry.status === 'skipped').map((entry) => dateFromKey(entry.date)),
+  }
+
+  return <section>
+    <p className="text-sm font-semibold text-[#438263]">身体数据</p>
+    <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">数据中心</h1>
+    <p className="mt-3 text-[#647268]">基于你已保存的测量与打卡记录计算，不会混入其他账号的数据。</p>
+    <div className="mt-5 flex gap-2" aria-label="趋势时间范围">{([7, 30, 90] as const).map((value) => <button className={`rounded-xl px-4 py-2 text-sm font-semibold ${days === value ? 'bg-[#256a49] text-white' : 'bg-white text-[#617065]'}`} key={value} onClick={() => setDays(value)} type="button">{value} 天</button>)}</div>
+    {message && <p className="mt-5 rounded-xl bg-[#fff1ef] px-4 py-3 text-sm text-[#a13d2e]" role="alert">{message}</p>}
+    <div className="mt-7 grid gap-4 sm:grid-cols-3"><MetricCard label="当前体重" value={latest ? `${latest.weightKg.toFixed(1)} kg` : '未记录'} detail={weightDelta == null ? '再记录一次即可看趋势' : `${days} 天 ${formatDelta(weightDelta, 'kg')}`} /><MetricCard label="目标体重" value={targetWeightKg ? `${targetWeightKg} kg` : '未设置'} detail="可在我的资料中修改" /><MetricCard label="当前腰围" value={latest?.waistCm == null ? '未记录' : `${latest.waistCm.toFixed(1)} cm`} detail={waistDelta == null ? '再记录一次即可看趋势' : `${days} 天 ${formatDelta(waistDelta, 'cm')}`} /></div>
+    {loading ? <p className="mt-7 text-sm text-[#647268]">正在读取你的历史记录…</p> : <>
+      <div className="mt-7 grid gap-4 lg:grid-cols-2">
+        {points.length < 2 ? <article className="rounded-3xl border border-dashed border-[#cbdccb] bg-white p-6"><h2 className="text-lg font-bold">还没有足够的趋势数据</h2><p className="mt-2 text-sm text-[#647268]">连续记录至少两天体重后，这里会显示你的变化曲线。</p></article> : <><TrendChart label="体重趋势" unit="kg" points={points} valueKey="weightKg" /><TrendChart label="腰围趋势" unit="cm" points={points.filter((point) => point.waistCm != null)} valueKey="waistCm" /></>}
+        <article className="rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm"><h2 className="text-lg font-bold">查看或补录日期</h2><p className="mt-2 text-sm text-[#647268]">选择任意一天，进入原有打卡表单查看或更新数据。</p><div className="mt-5 flex flex-wrap gap-3"><input className="rounded-xl border border-[#d6e2d8] px-3 py-2.5" max={today} onChange={(event) => setHistoryDate(event.target.value)} type="date" value={historyDate} /><button className="rounded-xl bg-[#256a49] px-4 py-2.5 text-sm font-bold text-white" onClick={() => onOpenDate(historyDate)} type="button">查看这一天</button></div></article>
+      </div>
+      <article className="mt-4 rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm"><h2 className="text-lg font-bold">打卡日历</h2><p className="mt-2 text-sm text-[#647268]">点击本月日期即可查看或补录。</p><DayPicker className="fitness-calendar mt-4" disabled={{ after: dateFromKey(today) }} endMonth={dateFromKey(`${today.slice(0, 7)}-01`)} locale={zhCN} mode="single" modifiers={calendarModifiers} modifiersClassNames={{ completed: 'rdp-day_completed', backfill: 'rdp-day_backfill', skipped: 'rdp-day_skipped' }} month={dateFromKey(`${calendarMonth}-01`)} onDayClick={(date) => onOpenDate(dateKey(date))} onMonthChange={(date) => setCalendarMonth(dateKey(date).slice(0, 7))} /><p className="mt-4 text-xs text-[#758378]">深绿：已完成　浅绿：补录　浅红：跳过</p></article>
+      <article className="mt-4 rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm"><h2 className="text-lg font-bold">最近打卡</h2>{history.length ? <div className="mt-3 divide-y divide-[#edf2ed]">{history.slice(0, 7).map((entry) => <button className="flex w-full items-center justify-between gap-3 py-3 text-left" key={entry.date} onClick={() => onOpenDate(entry.date)} type="button"><span><strong className="block">{entry.date}</strong><span className="mt-1 block text-sm text-[#647268]">{entry.status === 'completed' ? `已完成${entry.durationMinutes ? ` · ${entry.durationMinutes} 分钟` : ''}` : entry.status === 'skipped' ? '已跳过' : '补录'} · {entry.weightKg == null ? '未记录体重' : `${entry.weightKg} kg`}</span></span><span className="text-sm font-semibold text-[#438263]">查看</span></button>)}</div> : <p className="mt-3 text-sm text-[#647268]">这个区间还没有打卡记录。</p>}</article>
+    </>}
+  </section>
 }
 
 function MetricCard({ label, value, detail }: { label: string; value: string; detail: string }) { return <article className="rounded-3xl border border-[#dfe9e0] bg-white p-5 shadow-sm"><p className="text-sm font-semibold text-[#647268]">{label}</p><p className="mt-2 text-2xl font-bold tracking-tight">{value}</p><p className="mt-2 text-xs text-[#758378]">{detail}</p></article> }
