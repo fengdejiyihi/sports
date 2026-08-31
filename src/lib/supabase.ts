@@ -143,3 +143,15 @@ export async function saveManualMeal(userId: string, date: string, draft: Manual
   const { error } = await supabase.from('meal_entries').insert({ user_id: userId, eaten_on: date, meal_name: draft.mealName.trim(), items: [], total_calories: Math.round(Number(draft.totalCalories)), protein_grams: Number(draft.proteinGrams), meal_type: draft.mealType, source: 'manual' })
   if (error) throw error
 }
+
+export async function updateMeal(userId: string, id: string, draft: ManualMealDraft) {
+  if (!supabase) throw new Error('Supabase 尚未配置')
+  const { error } = await supabase.from('meal_entries').update({ meal_name: draft.mealName.trim(), total_calories: Math.round(Number(draft.totalCalories)), protein_grams: Number(draft.proteinGrams), meal_type: draft.mealType }).eq('id', id).eq('user_id', userId)
+  if (error) throw error
+}
+
+export async function deleteMeal(userId: string, id: string) {
+  if (!supabase) throw new Error('Supabase 尚未配置')
+  const { error } = await supabase.from('meal_entries').delete().eq('id', id).eq('user_id', userId)
+  if (error) throw error
+}
