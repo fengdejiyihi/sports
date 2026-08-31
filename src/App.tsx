@@ -3,13 +3,13 @@ import type { FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { emptyCheckinDraft, validateCheckin } from './lib/checkin'
 import type { CheckinDraft } from './lib/checkin'
-import { fileToDataUrl, validateImageMeta } from './lib/nutrition'
-import type { DietPlan, FoodAnalysis } from './lib/nutrition'
+import { fileToDataUrl, mealTotals, mealTypeLabels, validateImageMeta, validateManualMeal } from './lib/nutrition'
+import type { DietPlan, FoodAnalysis, ManualMealDraft, MealEntry, MealType } from './lib/nutrition'
 import { loadReminder, saveReminder } from './lib/reminders'
 import type { ReminderSettings } from './lib/reminders'
 import { ageFromBirthDate, emptyProfile, isValidWeight, validateProfile } from './lib/profile'
 import type { ProfileDraft } from './lib/profile'
-import { askNutrition, cloudEnabled, loadCheckinHistory, loadMeasurements, loadProfile, loadToday, requestMagicLink, saveBodyWeight, saveCheckin, saveMeal, saveProfile, subscribeToUserData, supabase } from './lib/supabase'
+import { askNutrition, cloudEnabled, loadCheckinHistory, loadMeals, loadMeasurements, loadProfile, loadToday, requestMagicLink, saveBodyWeight, saveCheckin, saveManualMeal, saveMeal, saveProfile, subscribeToUserData, supabase } from './lib/supabase'
 import { trendDelta, trendPoints } from './lib/trends'
 import type { MeasurementPoint } from './lib/trends'
 import type { HistoryDay } from './lib/history'
@@ -132,7 +132,7 @@ function App() {
     </header>
     <main className="mx-auto max-w-5xl px-5 py-8">
       <p className={`mb-5 rounded-xl px-4 py-3 text-sm ${syncMessage.startsWith('同步失败') ? 'bg-[#fff1ef] text-[#a13d2e]' : 'bg-[#e7f2e9] text-[#346748]'}`}>{syncMessage}</p>
-      <nav className="mb-8 flex gap-2 overflow-x-auto" aria-label="主导航">{navItems.map((item) => <button className={`shrink-0 rounded-xl px-4 py-2 text-sm font-semibold ${page === item ? 'bg-[#dff1e4] text-[#1e6743]' : 'bg-white text-[#617065]'}`} key={item} onClick={() => { if (item === 'today' || item === 'checkin') setCheckinDate(today); setPage(item) }} type="button">{{ today: '今日', data: '数据中心', checkin: '每日打卡', nutrition: 'AI 饮食', reminders: '提醒', profile: '我的资料' }[item]}</button>)}</nav>
+      <nav className="mb-8 flex gap-2 overflow-x-auto" aria-label="主导航">{navItems.map((item) => <button className={`shrink-0 rounded-xl px-4 py-2 text-sm font-semibold ${page === item ? 'bg-[#dff1e4] text-[#1e6743]' : 'bg-white text-[#617065]'}`} key={item} onClick={() => { if (item === 'today' || item === 'checkin') setCheckinDate(today); setPage(item) }} type="button">{{ today: '今日', data: '数据中心', checkin: '每日打卡', nutrition: '饮食账本', reminders: '提醒', profile: '我的资料' }[item]}</button>)}</nav>
       {page === 'today' && <Today saved={saved} stat={stat} targetWeightKg={profile.targetWeightKg} onCheckin={() => { setCheckinDate(today); setPage('checkin') }} />}
       {page === 'data' && <DataCenter userId={session?.user.id} targetWeightKg={profile.targetWeightKg} onOpenDate={(date) => { setCheckinDate(date); setPage('checkin') }} />}
       {page === 'checkin' && <Checkin date={checkinDate} draft={draft} errors={errors} saving={saving} setDraft={setDraft} submit={submit} />}
@@ -200,8 +200,14 @@ function Nutrition({ userId, stat, profile }: { userId?: string; stat: { weight:
   const [plan, setPlan] = useState<DietPlan | null>(null)
   const [analysis, setAnalysis] = useState<FoodAnalysis | null>(null)
   const [preview, setPreview] = useState('')
-  const [message, setMessage] = useState(userId ? '' : '配置 Supabase 并登录后可调用 Terra。')
+  const [meals, setMeals] = useState<MealEntry[]>([])
+  const [mealType, setMealType] = useState<MealType>('snack')
+  const [manual, setManual] = useState<ManualMealDraft>({ mealName: '', mealType: 'breakfast', totalCalories: '', proteinGrams: '' })
+  const [message, setMessage] = useState(userId ? '' : '配置 Supabase 并登录后可使用饮食账本。')
   const [loading, setLoading] = useState(false)
+  const refreshMeals = async () => { if (!userId) return; try { setMeals(await loadMeals(userId, today)) } catch (error) { setMessage(error instanceof Error ? error.message : '读取饮食账本失败') } }
+  useEffect(() => { if (!userId) return; void loadMeals(userId, today).then(setMeals).catch((error) => setMessage(error instanceof Error ? error.message : '读取饮食账本失败')) }, [userId])
+  const totals = mealTotals(meals)
 
   const recommend = async () => {
     const age = ageFromBirthDate(profile.birthDate)
@@ -217,23 +223,31 @@ function Nutrition({ userId, stat, profile }: { userId?: string; stat: { weight:
     const invalid = validateImageMeta(file)
     if (invalid) { setMessage(invalid); return }
     setLoading(true); setMessage(''); setAnalysis(null)
-    try {
-      const dataUrl = await fileToDataUrl(file)
-      setPreview(dataUrl)
-      setAnalysis(await askNutrition({ action: 'recognize', imageDataUrl: dataUrl }) as FoodAnalysis)
-    } catch (error) { setMessage(error instanceof Error ? error.message : '识别失败') }
+    try { const dataUrl = await fileToDataUrl(file); setPreview(dataUrl); setAnalysis(await askNutrition({ action: 'recognize', imageDataUrl: dataUrl }) as FoodAnalysis) }
+    catch (error) { setMessage(error instanceof Error ? error.message : '识别失败') }
     finally { setLoading(false) }
   }
 
   const confirm = async () => {
     if (!userId || !analysis) return
     setLoading(true); setMessage('')
-    try { await saveMeal(userId, today, analysis); setMessage('这餐已保存。') }
+    try { await saveMeal(userId, today, analysis, mealType); await refreshMeals(); setAnalysis(null); setPreview(''); setMessage('这餐已保存到饮食账本。') }
     catch (error) { setMessage(error instanceof Error ? error.message : '保存失败') }
     finally { setLoading(false) }
   }
 
-  return <section><p className="text-sm font-semibold text-[#438263]">AI 营养助手</p><h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">今天吃什么，一拍就知道</h1><p className="mt-3 text-[#647268]">建议基于你的减脂目标；图片估算结果需确认后才会保存。</p>{message && <p className="mt-5 rounded-xl bg-[#fff7df] px-4 py-3 text-sm text-[#765b18]" role="status">{message}</p>}<div className="mt-7 grid gap-4 lg:grid-cols-2"><article className="rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">今日饮食推荐</h2><p className="mt-2 text-sm text-[#647268]">当前 {stat.weight ? `${stat.weight} kg` : '未记录体重'} · {profile.targetWeightKg ? `目标 ${profile.targetWeightKg} kg` : '请先完善资料'}</p><button className="mt-5 rounded-xl bg-[#256a49] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50" disabled={!userId || loading} onClick={recommend} type="button">{loading ? '分析中…' : '生成今日三餐'}</button>{plan && <div className="mt-5"><p className="font-bold">目标约 {plan.targetCalories} kcal · 蛋白质 {plan.proteinGrams} g</p><div className="mt-3 divide-y divide-[#edf2ed]">{plan.meals.map((meal) => <div className="py-3" key={meal.name}><div className="flex justify-between gap-3 font-semibold"><span>{meal.name}</span><span>{meal.calories} kcal</span></div><p className="mt-1 text-sm text-[#647268]">{meal.foods} · 蛋白质 {meal.proteinGrams} g</p></div>)}</div><p className="mt-3 text-xs text-[#758378]">{plan.note}</p></div>}</article><article className="rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">拍照识别食物</h2><p className="mt-2 text-sm text-[#647268]">支持相机或相册，图片不会保存到数据库。</p><label className={`mt-5 inline-block rounded-xl px-4 py-2.5 text-sm font-bold text-white ${userId && !loading ? 'cursor-pointer bg-[#256a49]' : 'bg-[#8da398]'}`}>选择食物图片<input accept="image/jpeg,image/png,image/webp" capture="environment" className="sr-only" disabled={!userId || loading} onChange={(event) => { void recognize(event.target.files?.[0]) }} type="file" /></label>{preview && <img alt="待识别食物" className="mt-5 max-h-56 w-full rounded-2xl object-cover" src={preview} />}{analysis && <div className="mt-5"><div className="flex justify-between gap-3 font-bold"><span>{analysis.mealName}</span><span>约 {analysis.totalCalories} kcal</span></div><ul className="mt-3 space-y-2 text-sm">{analysis.items.map((item, index) => <li className="rounded-xl bg-[#f4f7f4] p-3" key={`${item.name}-${index}`}>{item.name} · {item.portion} · {item.calories} kcal · 蛋白质 {item.proteinGrams} g</li>)}</ul><p className="mt-3 text-xs text-[#758378]">{analysis.note}</p><button className="mt-4 rounded-xl bg-[#256a49] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50" disabled={loading} onClick={confirm} type="button">确认并保存</button></div>}</article></div><p className="mt-5 text-xs text-[#758378]">AI 只能估算食物与份量，不能替代称重、营养数据库或医疗建议。</p></section>
+  const saveManual = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const error = validateManualMeal(manual)
+    if (error) { setMessage(error); return }
+    if (!userId) return
+    setLoading(true); setMessage('')
+    try { await saveManualMeal(userId, today, manual); await refreshMeals(); setManual({ mealName: '', mealType: manual.mealType, totalCalories: '', proteinGrams: '' }); setMessage('手动记录已保存。') }
+    catch (error) { setMessage(error instanceof Error ? error.message : '保存失败') }
+    finally { setLoading(false) }
+  }
+
+  return <section><p className="text-sm font-semibold text-[#438263]">今日饮食</p><h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">饮食账本</h1><p className="mt-3 text-[#647268]">今天的每一餐都会汇总到这里；识图结果仍需确认后才保存。</p>{message && <p className="mt-5 rounded-xl bg-[#fff7df] px-4 py-3 text-sm text-[#765b18]" role="status">{message}</p>}<article className="mt-7 rounded-3xl bg-[#256a49] p-6 text-white shadow-sm"><p className="text-sm font-semibold text-[#d9f2e1]">今日已记录 {meals.length} 餐</p><div className="mt-3 flex flex-wrap gap-x-8 gap-y-2"><p className="text-3xl font-bold">{Math.round(totals.calories)} <span className="text-base text-[#d9f2e1]">kcal</span></p><p className="text-3xl font-bold">{totals.protein.toFixed(1)} <span className="text-base text-[#d9f2e1]">g 蛋白质</span></p></div></article><div className="mt-4 grid gap-4 lg:grid-cols-2"><article className="rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">今天吃了什么</h2>{meals.length ? <div className="mt-3 divide-y divide-[#edf2ed]">{(['breakfast', 'lunch', 'dinner', 'snack'] as MealType[]).map((type) => meals.filter((meal) => meal.mealType === type).map((meal) => <div className="flex items-center justify-between gap-3 py-3" key={meal.id}><div><p className="font-semibold">{mealTypeLabels[type]} · {meal.mealName}</p><p className="mt-1 text-xs text-[#758378]">{meal.source === 'vision' ? '拍照识别' : '手动记录'} · 蛋白质 {meal.proteinGrams} g</p></div><strong>{meal.totalCalories} kcal</strong></div>))}</div> : <p className="mt-3 text-sm text-[#647268]">今天还没有记录餐食。</p>}</article><form className="rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm" onSubmit={saveManual}><h2 className="text-xl font-bold">手动添加</h2><div className="mt-4 grid gap-3 sm:grid-cols-2"><Field label="餐食名称" value={manual.mealName} onChange={(mealName) => setManual({ ...manual, mealName })} /><Select label="餐次" value={manual.mealType} onChange={(mealType) => setManual({ ...manual, mealType: mealType as MealType })} options={[['breakfast', '早餐'], ['lunch', '午餐'], ['dinner', '晚餐'], ['snack', '加餐']]} /><Field label="热量（kcal）" value={manual.totalCalories} onChange={(totalCalories) => setManual({ ...manual, totalCalories })} /><Field label="蛋白质（g）" value={manual.proteinGrams} onChange={(proteinGrams) => setManual({ ...manual, proteinGrams })} /></div><button className="mt-5 rounded-xl bg-[#256a49] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50" disabled={!userId || loading} type="submit">保存餐食</button></form><article className="rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">AI 饮食建议</h2><p className="mt-2 text-sm text-[#647268]">当前 {stat.weight ? `${stat.weight} kg` : '未记录体重'} · {profile.targetWeightKg ? `目标 ${profile.targetWeightKg} kg` : '请先完善资料'}</p><button className="mt-5 rounded-xl bg-[#256a49] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50" disabled={!userId || loading} onClick={recommend} type="button">{loading ? '分析中…' : '生成今日三餐'}</button>{plan && <div className="mt-5"><p className="font-bold">目标约 {plan.targetCalories} kcal · 蛋白质 {plan.proteinGrams} g</p><div className="mt-3 divide-y divide-[#edf2ed]">{plan.meals.map((meal) => <div className="py-3" key={meal.name}><div className="flex justify-between gap-3 font-semibold"><span>{meal.name}</span><span>{meal.calories} kcal</span></div><p className="mt-1 text-sm text-[#647268]">{meal.foods} · 蛋白质 {meal.proteinGrams} g</p></div>)}</div><p className="mt-3 text-xs text-[#758378]">{plan.note}</p></div>}</article><article className="rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">拍照识别食物</h2><p className="mt-2 text-sm text-[#647268]">选择餐次后拍照，图片不会保存到数据库。</p><div className="mt-4 max-w-40"><Select label="归入餐次" value={mealType} onChange={(value) => setMealType(value as MealType)} options={[['breakfast', '早餐'], ['lunch', '午餐'], ['dinner', '晚餐'], ['snack', '加餐']]} /></div><label className={`mt-5 inline-block rounded-xl px-4 py-2.5 text-sm font-bold text-white ${userId && !loading ? 'cursor-pointer bg-[#256a49]' : 'bg-[#8da398]'}`}>选择食物图片<input accept="image/jpeg,image/png,image/webp" capture="environment" className="sr-only" disabled={!userId || loading} onChange={(event) => { void recognize(event.target.files?.[0]) }} type="file" /></label>{preview && <img alt="待识别食物" className="mt-5 max-h-56 w-full rounded-2xl object-cover" src={preview} />}{analysis && <div className="mt-5"><div className="flex justify-between gap-3 font-bold"><span>{analysis.mealName}</span><span>约 {analysis.totalCalories} kcal</span></div><ul className="mt-3 space-y-2 text-sm">{analysis.items.map((item, index) => <li className="rounded-xl bg-[#f4f7f4] p-3" key={`${item.name}-${index}`}>{item.name} · {item.portion} · {item.calories} kcal · 蛋白质 {item.proteinGrams} g</li>)}</ul><p className="mt-3 text-xs text-[#758378]">{analysis.note}</p><button className="mt-4 rounded-xl bg-[#256a49] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50" disabled={loading} onClick={confirm} type="button">确认并保存</button></div>}</article></div><p className="mt-5 text-xs text-[#758378]">AI 只能估算食物与份量，不能替代称重、营养数据库或医疗建议。</p></section>
 }
 
 function Profile({ userId, profile, weightKg, setProfile, setWeightKg, onSaved }: { userId?: string; profile: ProfileDraft; weightKg: string; setProfile: (profile: ProfileDraft) => void; setWeightKg: (weightKg: string) => void; onSaved: () => void }) {

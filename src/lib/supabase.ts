@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { checkinValues } from './checkin'
 import type { CheckinDraft } from './checkin'
-import type { DietPlan, FoodAnalysis } from './nutrition'
+import type { DietPlan, FoodAnalysis, ManualMealDraft, MealEntry, MealType } from './nutrition'
 import { emptyProfile } from './profile'
 import type { ProfileDraft } from './profile'
 import type { MeasurementPoint } from './trends'
@@ -125,8 +125,21 @@ export async function askNutrition(body: { action: 'recommend'; weightKg: number
   return data
 }
 
-export async function saveMeal(userId: string, date: string, analysis: FoodAnalysis) {
+export async function loadMeals(userId: string, date: string): Promise<MealEntry[]> {
+  if (!supabase) return []
+  const { data, error } = await supabase.from('meal_entries').select('id,meal_name,meal_type,total_calories,protein_grams,source').eq('user_id', userId).eq('eaten_on', date).order('created_at')
+  if (error) throw error
+  return (data || []).map((meal) => ({ id: meal.id, mealName: meal.meal_name, mealType: meal.meal_type as MealType, totalCalories: Number(meal.total_calories), proteinGrams: Number(meal.protein_grams), source: meal.source as MealEntry['source'] }))
+}
+
+export async function saveMeal(userId: string, date: string, analysis: FoodAnalysis, mealType: MealType) {
   if (!supabase) throw new Error('Supabase 尚未配置')
-  const { error } = await supabase.from('meal_entries').insert({ user_id: userId, eaten_on: date, meal_name: analysis.mealName, items: analysis.items, total_calories: Math.round(analysis.totalCalories), protein_grams: analysis.totalProteinGrams })
+  const { error } = await supabase.from('meal_entries').insert({ user_id: userId, eaten_on: date, meal_name: analysis.mealName, items: analysis.items, total_calories: Math.round(analysis.totalCalories), protein_grams: analysis.totalProteinGrams, meal_type: mealType, source: 'vision' })
+  if (error) throw error
+}
+
+export async function saveManualMeal(userId: string, date: string, draft: ManualMealDraft) {
+  if (!supabase) throw new Error('Supabase 尚未配置')
+  const { error } = await supabase.from('meal_entries').insert({ user_id: userId, eaten_on: date, meal_name: draft.mealName.trim(), items: [], total_calories: Math.round(Number(draft.totalCalories)), protein_grams: Number(draft.proteinGrams), meal_type: draft.mealType, source: 'manual' })
   if (error) throw error
 }

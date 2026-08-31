@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { checkinValues, emptyCheckinDraft, validateCheckin } from './checkin'
-import { validateImageMeta } from './nutrition'
+import { mealTotals, validateImageMeta, validateManualMeal } from './nutrition'
 import { ageFromBirthDate, isValidWeight, validateProfile } from './profile'
 import { urlBase64ToUint8Array } from './reminders'
 import { reminderDue } from '../../supabase/functions/send-reminders/due'
@@ -56,6 +56,14 @@ describe('measurement trends', () => {
     expect(trendDelta(points, 'weightKg')).toBeCloseTo(-0.6)
     expect(trendDelta(points, 'waistCm')).toBeCloseTo(-0.5)
     expect(trendPoints(points, 'weightKg')).not.toBe('')
+  })
+})
+
+describe('meal ledger validation', () => {
+  it('rejects impossible manual nutrition values before writing a meal entry', () => {
+    expect(validateManualMeal({ mealName: '鸡胸肉饭', mealType: 'lunch', totalCalories: '600', proteinGrams: '40' })).toBe('')
+    expect(validateManualMeal({ mealName: '', mealType: 'lunch', totalCalories: '-1', proteinGrams: '40' })).toBe('请输入 1–80 字的餐食名称')
+    expect(mealTotals([{ id: 'a', mealName: '早餐', mealType: 'breakfast', totalCalories: 450, proteinGrams: 30, source: 'manual' }, { id: 'b', mealName: '午餐', mealType: 'lunch', totalCalories: 600, proteinGrams: 40, source: 'vision' }])).toEqual({ calories: 1050, protein: 70 })
   })
 })
 
