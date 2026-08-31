@@ -1,0 +1,77 @@
+import { createClient } from '@supabase/supabase-js'
+import { checkinValues } from './checkin'
+import type { CheckinDraft } from './checkin'
+import type { DietPlan, FoodAnalysis } from './nutrition'
+
+const url = import.meta.env.VITE_SUPABASE_URL
+const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY
+const nutritionFunction = import.meta.env.VITE_NUTRITION_FUNCTION || 'nutrition'
+
+export const cloudEnabled = Boolean(url && key)
+export const supabase = cloudEnabled ? createClient(url, key) : null
+
+export async function requestMagicLink(email: string) {
+  if (!supabase) throw new Error('Supabase 尚未配置')
+  const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } })
+  if (error) throw error
+}
+
+export async function loadToday(userId: string, date: string) {
+  if (!supabase) return { checkin: null, measurement: null }
+  const [checkinResult, measurementResult] = await Promise.all([
+    supabase.from('daily_checkins').select('status,duration_minutes,sleep_minutes,energy_rating,soreness_rating,notes').eq('user_id', userId).eq('checkin_date', date).maybeSingle(),
+    supabase.from('body_measurements').select('weight_kg,waist_cm').eq('user_id', userId).eq('measured_on', date).maybeSingle(),
+  ])
+  if (checkinResult.error) throw checkinResult.error
+  if (measurementResult.error) throw measurementResult.error
+  return { checkin: checkinResult.data, measurement: measurementResult.data }
+}
+
+export async function saveCheckin(date: string, draft: CheckinDraft) {
+  if (!supabase) throw new Error('Supabase 尚未配置')
+  const values = checkinValues(draft)
+  const { error } = await supabase.rpc('save_daily_checkin', {
+    p_checkin_date: date,
+    p_status: values.status,
+    p_duration_minutes: values.durationMinutes,
+    p_weight_kg: values.weightKg,
+    p_waist_cm: values.waistCm,
+    p_sleep_minutes: values.sleepMinutes,
+    p_energy_rating: values.energyRating,
+    p_soreness_rating: values.sorenessRating,
+    p_notes: values.notes,
+  })
+  if (error) throw error
+}
+
+export function subscribeToUserData(userId: string, onChange: () => void) {
+  if (!supabase) return () => undefined
+  const client = supabase
+  const channel = client.channel(`fitness-sync:${userId}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_checkins', filter: `user_id=eq.${userId}` }, onChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'body_measurements', filter: `user_id=eq.${userId}` }, onChange)
+    .subscribe()
+  return () => { void client.removeChannel(channel) }
+}
+
+export async function askNutrition(body: { action: 'recommend'; weightKg: number; waistCm: number } | { action: 'recognize'; imageDataUrl: string }) {
+  if (!supabase) throw new Error('请先配置 Supabase 并登录')
+  const { data, error } = await supabase.functions.invoke<FoodAnalysis | DietPlan>(nutritionFunction, { body })
+  if (error) {
+    const context = error.context
+    if (context instanceof Response) {
+      const payload = await context.clone().json().catch(() => null)
+      if (payload && typeof payload === 'object' && 'error' in payload) throw new Error(String(payload.error))
+    }
+    throw error
+  }
+  if (!data) throw new Error('AI 未返回结果')
+  if ('error' in data) throw new Error(String(data.error))
+  return data
+}
+
+export async function saveMeal(userId: string, date: string, analysis: FoodAnalysis) {
+  if (!supabase) throw new Error('Supabase 尚未配置')
+  const { error } = await supabase.from('meal_entries').insert({ user_id: userId, eaten_on: date, meal_name: analysis.mealName, items: analysis.items, total_calories: Math.round(analysis.totalCalories), protein_grams: analysis.totalProteinGrams })
+  if (error) throw error
+}
