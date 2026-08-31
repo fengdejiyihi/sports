@@ -30,6 +30,7 @@ function App() {
   const [saving, setSaving] = useState(false)
   const [syncMessage, setSyncMessage] = useState(cloudEnabled ? '正在连接云端…' : '本地模式 · 配置 Supabase 后启用跨设备同步')
   const [profile, setProfile] = useState<ProfileDraft>(emptyProfile)
+  const [profileReady, setProfileReady] = useState(!cloudEnabled)
   const lastUserId = useRef<string | undefined>(undefined)
 
   useEffect(() => {
@@ -40,6 +41,7 @@ function App() {
         setSaved(false)
         setErrors([])
         setProfile(emptyProfile())
+        setProfileReady(!nextSession)
         setSyncMessage(nextSession ? '正在同步你的数据…' : '正在连接云端…')
       }
       lastUserId.current = nextSession?.user.id
@@ -69,10 +71,12 @@ function App() {
           notes: checkin?.notes || '',
         })
         setProfile(nextProfile)
+        setProfileReady(true)
+        if (validateProfile(nextProfile).length) setPage('profile')
         setSaved(Boolean(checkin || measurement))
         setSyncMessage('云端已同步')
       } catch (error) {
-        if (active) setSyncMessage(`同步失败：${error instanceof Error ? error.message : '请稍后重试'}`)
+        if (active) { setProfileReady(true); setSyncMessage(`同步失败：${error instanceof Error ? error.message : '请稍后重试'}`) }
       }
     }
     void refresh()
@@ -104,8 +108,11 @@ function App() {
 
   if (!authReady) return <CenteredMessage text="正在恢复登录状态…" />
   if (cloudEnabled && !session) return <Login />
+  if (session && !profileReady) return <CenteredMessage text="正在读取你的资料…" />
 
   const stat = { weight: draft.weightKg, waist: draft.waistCm, sleep: draft.sleepHours }
+  const profileIncomplete = Boolean(session && validateProfile(profile).length)
+  const navItems = profileIncomplete ? ['profile'] as const : ['today', 'checkin', 'nutrition', 'reminders', 'profile'] as const
 
   return <div className="min-h-screen bg-[#f4f7f4] text-[#17211a]">
     <header className="border-b border-[#dce6dd] bg-white">
@@ -116,7 +123,7 @@ function App() {
     </header>
     <main className="mx-auto max-w-5xl px-5 py-8">
       <p className={`mb-5 rounded-xl px-4 py-3 text-sm ${syncMessage.startsWith('同步失败') ? 'bg-[#fff1ef] text-[#a13d2e]' : 'bg-[#e7f2e9] text-[#346748]'}`}>{syncMessage}</p>
-      <nav className="mb-8 flex gap-2 overflow-x-auto" aria-label="主导航">{(['today', 'checkin', 'nutrition', 'reminders', 'profile'] as const).map((item) => <button className={`shrink-0 rounded-xl px-4 py-2 text-sm font-semibold ${page === item ? 'bg-[#dff1e4] text-[#1e6743]' : 'bg-white text-[#617065]'}`} key={item} onClick={() => setPage(item)} type="button">{{ today: '今日', checkin: '每日打卡', nutrition: 'AI 饮食', reminders: '提醒', profile: '我的资料' }[item]}</button>)}</nav>
+      <nav className="mb-8 flex gap-2 overflow-x-auto" aria-label="主导航">{navItems.map((item) => <button className={`shrink-0 rounded-xl px-4 py-2 text-sm font-semibold ${page === item ? 'bg-[#dff1e4] text-[#1e6743]' : 'bg-white text-[#617065]'}`} key={item} onClick={() => setPage(item)} type="button">{{ today: '今日', checkin: '每日打卡', nutrition: 'AI 饮食', reminders: '提醒', profile: '我的资料' }[item]}</button>)}</nav>
       {page === 'today' && <Today saved={saved} stat={stat} targetWeightKg={profile.targetWeightKg} onCheckin={() => setPage('checkin')} />}
       {page === 'checkin' && <Checkin draft={draft} errors={errors} saving={saving} setDraft={setDraft} submit={submit} />}
       {page === 'nutrition' && <Nutrition key={session?.user.id} userId={session?.user.id} stat={stat} profile={profile} />}
@@ -200,7 +207,7 @@ function Profile({ userId, profile, setProfile }: { userId?: string; profile: Pr
     catch (error) { setMessage(error instanceof Error ? error.message : '保存失败') }
     finally { setSaving(false) }
   }
-  return <section className="max-w-2xl"><p className="text-sm font-semibold text-[#438263]">个人设置</p><h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">我的资料</h1><p className="mt-3 text-[#647268]">仅用于你的目标展示和 AI 饮食建议。出生日期会自动计算年龄。</p>{message && <p className="mt-5 rounded-xl bg-[#fff7df] px-4 py-3 text-sm text-[#765b18]" role="status">{message}</p>}<form className="mt-7 rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm" onSubmit={submit}><div className="grid gap-4 sm:grid-cols-2"><Select label="性别" value={profile.sex} onChange={(sex) => setProfile({ ...profile, sex: sex as ProfileDraft['sex'] })} options={[['unspecified', '暂不透露'], ['male', '男'], ['female', '女']]} /><label><span className="text-sm font-semibold">出生日期</span><input className="mt-2 w-full rounded-xl border border-[#d6e2d8] px-3 py-2.5 outline-none focus:border-[#438263]" max={new Date().toISOString().slice(0, 10)} onChange={(event) => setProfile({ ...profile, birthDate: event.target.value })} required type="date" value={profile.birthDate} /></label><Field label="身高（cm）" value={profile.heightCm} onChange={(heightCm) => setProfile({ ...profile, heightCm })} /><Field label="目标体重（kg）" value={profile.targetWeightKg} onChange={(targetWeightKg) => setProfile({ ...profile, targetWeightKg })} /></div><button className="mt-6 rounded-xl bg-[#256a49] px-5 py-3 text-sm font-bold text-white disabled:opacity-60" disabled={!userId || saving} type="submit">{saving ? '保存中…' : '保存资料'}</button></form></section>
+  return <section className="max-w-2xl"><p className="text-sm font-semibold text-[#438263]">个人设置</p><h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">先完善你的资料</h1><p className="mt-3 text-[#647268]">首次使用需要填写资料，用于生成适合你的目标和 AI 饮食建议。出生日期会自动计算年龄。</p>{message && <p className="mt-5 rounded-xl bg-[#fff7df] px-4 py-3 text-sm text-[#765b18]" role="status">{message}</p>}<form className="mt-7 rounded-3xl border border-[#dfe9e0] bg-white p-6 shadow-sm" onSubmit={submit}><div className="grid gap-4 sm:grid-cols-2"><Select label="性别" value={profile.sex} onChange={(sex) => setProfile({ ...profile, sex: sex as ProfileDraft['sex'] })} options={[['unspecified', '暂不透露'], ['male', '男'], ['female', '女']]} /><label><span className="text-sm font-semibold">出生日期</span><input className="mt-2 w-full rounded-xl border border-[#d6e2d8] px-3 py-2.5 outline-none focus:border-[#438263]" max={new Date().toISOString().slice(0, 10)} onChange={(event) => setProfile({ ...profile, birthDate: event.target.value })} required type="date" value={profile.birthDate} /></label><Field label="身高（cm）" value={profile.heightCm} onChange={(heightCm) => setProfile({ ...profile, heightCm })} /><Field label="目标体重（kg）" value={profile.targetWeightKg} onChange={(targetWeightKg) => setProfile({ ...profile, targetWeightKg })} /></div><button className="mt-6 rounded-xl bg-[#256a49] px-5 py-3 text-sm font-bold text-white disabled:opacity-60" disabled={!userId || saving} type="submit">{saving ? '保存中…' : '保存资料，开始使用'}</button></form></section>
 }
 
 function Reminders({ userId }: { userId?: string }) {
