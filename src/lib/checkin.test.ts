@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { checkinValues, emptyCheckinDraft, validateCheckin } from './checkin'
 import { validateImageMeta } from './nutrition'
+import { ageFromBirthDate, validateProfile } from './profile'
 import { urlBase64ToUint8Array } from './reminders'
 import { reminderDue } from '../../supabase/functions/send-reminders/due'
 
@@ -21,6 +22,13 @@ describe('validateImageMeta', () => {
   it('rejects unsupported or oversized uploads before AI processing', () => {
     expect(validateImageMeta({ type: 'image/gif', size: 10 })).toBe('仅支持 JPG、PNG 或 WebP 图片')
     expect(validateImageMeta({ type: 'image/jpeg', size: 6 * 1024 * 1024 })).toBe('图片不能超过 5 MB')
+  })
+})
+
+describe('validateProfile', () => {
+  it('keeps each user profile within safe recommendation ranges', () => {
+    expect(ageFromBirthDate('2000-09-01', new Date('2026-08-31'))).toBe(25)
+    expect(validateProfile({ sex: 'unspecified', birthDate: '2018-01-01', heightCm: '178', targetWeightKg: '65' })).toContain('请输入 14–100 岁范围内的出生日期')
   })
 })
 
