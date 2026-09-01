@@ -1,7 +1,11 @@
-export type ProfileDraft = { sex: 'male' | 'female' | 'unspecified'; birthDate: string; heightCm: string; targetWeightKg: string }
+export type ProfileDraft = { sex: 'male' | 'female' | 'unspecified'; birthDate: string; heightCm: string; targetWeightKg: string; dietPreferences: string; allergens: string; foodBudget: '' | 'low' | 'medium' | 'high' }
 
 export function emptyProfile(): ProfileDraft {
-  return { sex: 'unspecified', birthDate: '', heightCm: '', targetWeightKg: '' }
+  return { sex: 'unspecified', birthDate: '', heightCm: '', targetWeightKg: '', dietPreferences: '', allergens: '', foodBudget: '' }
+}
+
+export function textList(value: string) {
+  return [...new Set(value.split(/[，,、]/).map((item) => item.trim()).filter(Boolean))].slice(0, 10)
 }
 
 export function ageFromBirthDate(birthDate: string, now = new Date()) {

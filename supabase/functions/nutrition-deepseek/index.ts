@@ -18,6 +18,8 @@ const planSchema = {
   }, required: ['targetCalories', 'proteinGrams', 'meals', 'note'],
 }
 
+const safeList = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.length <= 40).slice(0, 10) : []
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers })
   try {
@@ -30,10 +32,13 @@ Deno.serve(async (request) => {
     if (recognition && (!body.imageDataUrl || body.imageDataUrl.length > 7_000_000)) throw new Error('图片无效或过大')
     if (!recognition && (!Number.isFinite(body.weightKg) || body.weightKg < 25 || body.weightKg > 300 || !Number.isFinite(body.waistCm) || body.waistCm < 30 || body.waistCm > 200 || !['male', 'female', 'unspecified'].includes(body.profile?.sex) || !Number.isFinite(body.profile?.age) || body.profile.age < 14 || body.profile.age > 100 || !Number.isFinite(body.profile?.heightCm) || body.profile.heightCm < 100 || body.profile.heightCm > 250 || !Number.isFinite(body.profile?.targetWeightKg) || body.profile.targetWeightKg < 25 || body.profile.targetWeightKg > 300)) throw new Error('身体或个人资料无效')
 
+    const dietPreferences = safeList(body.profile?.dietPreferences)
+    const allergens = safeList(body.profile?.allergens)
+    const foodBudget = ['low', 'medium', 'high'].includes(body.profile?.foodBudget) ? body.profile.foodBudget : ''
     const schema = recognition ? foodSchema : planSchema
     const promptText = recognition
       ? '识别图片中的食物并估算份量、热量和蛋白质。无法确定时降低 confidence；中文输出；提醒结果为估算值。'
-      : `为${body.profile.sex === 'male' ? '男性' : body.profile.sex === 'female' ? '女性' : '未提供性别的用户'}，${body.profile.age}岁，${body.profile.heightCm}cm，当前${body.weightKg}kg，腰围${body.waistCm}cm，目标${body.profile.targetWeightKg}kg制定今天三餐减脂饮食。食材要常见、可执行，蛋白质充足，不使用极端热量缺口。中文输出。`
+      : `为${body.profile.sex === 'male' ? '男性' : body.profile.sex === 'female' ? '女性' : '未提供性别的用户'}，${body.profile.age}岁，${body.profile.heightCm}cm，当前${body.weightKg}kg，腰围${body.waistCm}cm，目标${body.profile.targetWeightKg}kg制定${body.trainingDay ? '训练日' : '休息日'}三餐减脂饮食。饮食偏好：${dietPreferences.join('、') || '无'}；需避开：${allergens.join('、') || '无'}；食材预算：${foodBudget === 'low' ? '经济' : foodBudget === 'medium' ? '适中' : foodBudget === 'high' ? '宽裕' : '不限定'}。食材要常见、可执行，蛋白质充足，不使用极端热量缺口。中文输出。`
     const content = recognition
       ? [{ type: 'text', text: `${promptText} 只返回 JSON，必须符合：${JSON.stringify(schema)}` }, { type: 'image_url', image_url: { url: body.imageDataUrl, detail: 'low' } }]
       : `${promptText} 只返回 JSON，必须符合：${JSON.stringify(schema)}`

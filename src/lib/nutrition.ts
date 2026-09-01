@@ -13,6 +13,8 @@ export type DietPlan = {
   note: string
 }
 
+export type DailyNutritionTarget = DietPlan & { trainingDay: boolean }
+
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
 export type MealEntry = { id: string; mealName: string; mealType: MealType; totalCalories: number; proteinGrams: number; source: 'manual' | 'vision' | 'ai_plan' }
 export type ManualMealDraft = { mealName: string; mealType: MealType; totalCalories: string; proteinGrams: string }

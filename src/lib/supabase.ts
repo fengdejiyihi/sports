@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 import { checkinValues } from './checkin'
 import type { CheckinDraft } from './checkin'
-import type { DietPlan, FoodAnalysis, ManualMealDraft, MealEntry, MealType } from './nutrition'
-import { emptyProfile } from './profile'
+import type { DailyNutritionTarget, DietPlan, FoodAnalysis, ManualMealDraft, MealEntry, MealType } from './nutrition'
+import { emptyProfile, textList } from './profile'
 import type { ProfileDraft } from './profile'
 import type { MeasurementPoint } from './trends'
 import { mergeHistory } from './history'
@@ -58,13 +58,16 @@ export async function loadCheckinHistory(userId: string, since: string, until?: 
 
 export async function loadProfile(userId: string): Promise<ProfileDraft> {
   if (!supabase) return emptyProfile()
-  const { data, error } = await supabase.from('profiles').select('sex,birth_date,height_cm,target_weight_kg').eq('user_id', userId).maybeSingle()
+  const { data, error } = await supabase.from('profiles').select('sex,birth_date,height_cm,target_weight_kg,diet_preferences,allergens,food_budget').eq('user_id', userId).maybeSingle()
   if (error) throw error
   return {
     sex: data?.sex === 'male' || data?.sex === 'female' ? data.sex : 'unspecified',
     birthDate: data?.birth_date || '',
     heightCm: data?.height_cm == null ? '' : String(data.height_cm),
     targetWeightKg: data?.target_weight_kg == null ? '' : String(data.target_weight_kg),
+    dietPreferences: Array.isArray(data?.diet_preferences) ? data.diet_preferences.join('、') : '',
+    allergens: Array.isArray(data?.allergens) ? data.allergens.join('、') : '',
+    foodBudget: data?.food_budget === 'low' || data?.food_budget === 'medium' || data?.food_budget === 'high' ? data.food_budget : '',
   }
 }
 
@@ -76,6 +79,9 @@ export async function saveProfile(userId: string, profile: ProfileDraft) {
     birth_date: profile.birthDate,
     height_cm: Number(profile.heightCm),
     target_weight_kg: Number(profile.targetWeightKg),
+    diet_preferences: textList(profile.dietPreferences),
+    allergens: textList(profile.allergens),
+    food_budget: profile.foodBudget || null,
   })
   if (error) throw error
 }
@@ -114,7 +120,7 @@ export function subscribeToUserData(userId: string, onChange: () => void) {
   return () => { void client.removeChannel(channel) }
 }
 
-export async function askNutrition(body: { action: 'recommend'; weightKg: number; waistCm: number; profile: { sex: ProfileDraft['sex']; age: number; heightCm: number; targetWeightKg: number } } | { action: 'recognize'; imageDataUrl: string }) {
+export async function askNutrition(body: { action: 'recommend'; weightKg: number; waistCm: number; trainingDay: boolean; profile: { sex: ProfileDraft['sex']; age: number; heightCm: number; targetWeightKg: number; dietPreferences: string[]; allergens: string[]; foodBudget: ProfileDraft['foodBudget'] } } | { action: 'recognize'; imageDataUrl: string }) {
   if (!supabase) throw new Error('请先配置 Supabase 并登录')
   const { data, error } = await supabase.functions.invoke<FoodAnalysis | DietPlan>(nutritionFunction, { body })
   if (error) {
@@ -128,6 +134,21 @@ export async function askNutrition(body: { action: 'recommend'; weightKg: number
   if (!data) throw new Error('AI 未返回结果')
   if ('error' in data) throw new Error(String(data.error))
   return data
+}
+
+export async function loadNutritionTarget(userId: string, date: string): Promise<DailyNutritionTarget | null> {
+  if (!supabase) return null
+  const { data, error } = await supabase.from('nutrition_daily_targets').select('training_day,target_calories,protein_grams,plan,note').eq('user_id', userId).eq('target_date', date).maybeSingle()
+  if (error) throw error
+  if (!data) return null
+  const plan = data.plan as DietPlan
+  return { ...plan, trainingDay: data.training_day, targetCalories: Number(data.target_calories), proteinGrams: Number(data.protein_grams), note: data.note || plan.note || '' }
+}
+
+export async function saveNutritionTarget(userId: string, date: string, target: DailyNutritionTarget) {
+  if (!supabase) throw new Error('Supabase 尚未配置')
+  const { error } = await supabase.from('nutrition_daily_targets').upsert({ user_id: userId, target_date: date, training_day: target.trainingDay, target_calories: Math.round(target.targetCalories), protein_grams: target.proteinGrams, plan: { targetCalories: target.targetCalories, proteinGrams: target.proteinGrams, meals: target.meals, note: target.note }, note: target.note }, { onConflict: 'user_id,target_date' })
+  if (error) throw error
 }
 
 export async function loadMeals(userId: string, date: string): Promise<MealEntry[]> {
