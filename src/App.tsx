@@ -134,8 +134,8 @@ function App() {
   return <div className="min-h-screen bg-[#f4f7f4] text-[#17211a]">
     <header className="border-b border-[#dce6dd] bg-white">
       <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-5 py-4">
-        <div className="flex items-center gap-3 font-bold tracking-tight"><span className="grid size-8 place-items-center rounded-xl bg-[#256a49] text-white">✓</span>燃动</div>
-        <div className="flex items-center gap-3 text-sm text-[#5e6c62]"><span className="hidden sm:inline">{session?.user.email || 'ZY · 本地演示'}</span>{session && <button className="font-semibold text-[#256a49]" onClick={() => { void supabase?.auth.signOut() }} type="button">退出</button>}</div>
+        <div className="flex shrink-0 items-center gap-3 font-bold tracking-tight"><span className="grid size-8 place-items-center rounded-xl bg-[#256a49] text-white">✓</span>燃动</div>
+        <div className="flex min-w-0 items-center gap-2 text-sm text-[#5e6c62]"><span className="max-w-28 truncate sm:max-w-64">{session?.user.email || 'ZY · 本地演示'}</span>{session && <button className="shrink-0 font-semibold text-[#256a49]" onClick={() => { void supabase?.auth.signOut() }} type="button">退出</button>}</div>
       </div>
     </header>
     <main className="mx-auto max-w-5xl px-5 py-8">
