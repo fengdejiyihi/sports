@@ -7,6 +7,7 @@ import type { ProfileDraft } from './profile'
 import type { MeasurementPoint } from './trends'
 import { mergeHistory } from './history'
 import type { HistoryDay } from './history'
+import { weekdayOrder } from './workouts'
 import type { WorkoutPlan, WorkoutPlanDraft } from './workouts'
 
 const url = import.meta.env.VITE_SUPABASE_URL
@@ -167,7 +168,7 @@ export async function loadWorkoutPlans(userId: string): Promise<WorkoutPlan[]> {
   if (!plans?.length) return []
   const { data: items, error: itemsError } = await supabase.from('workout_plan_items').select('plan_id,exercise_name,sets,reps_min,reps_max,sort_order').in('plan_id', plans.map((plan) => plan.id)).order('sort_order')
   if (itemsError) throw itemsError
-  return plans.map((plan) => ({ id: plan.id, name: plan.name, weekday: String(plan.weekday), durationMinutes: String(plan.duration_minutes), isActive: plan.is_active, items: (items || []).filter((item) => item.plan_id === plan.id).map((item) => ({ exerciseName: item.exercise_name, sets: String(item.sets), repsMin: String(item.reps_min), repsMax: String(item.reps_max) })) }))
+  return plans.map((plan) => ({ id: plan.id, name: plan.name, weekday: String(plan.weekday), durationMinutes: String(plan.duration_minutes), isActive: plan.is_active, items: (items || []).filter((item) => item.plan_id === plan.id).map((item) => ({ exerciseName: item.exercise_name, sets: String(item.sets), repsMin: String(item.reps_min), repsMax: String(item.reps_max) })) })).sort((left, right) => weekdayOrder.indexOf(Number(left.weekday)) - weekdayOrder.indexOf(Number(right.weekday)))
 }
 
 export async function saveWorkoutPlan(plan: WorkoutPlanDraft, id?: string) {

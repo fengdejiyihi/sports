@@ -6,7 +6,7 @@ import { urlBase64ToUint8Array } from './reminders'
 import { reminderDue } from '../../supabase/functions/send-reminders/due'
 import { trendDelta, trendPoints } from './trends'
 import { mergeHistory } from './history'
-import { emptyWorkoutPlan, validateWorkoutPlan } from './workouts'
+import { emptyWorkoutPlan, validateWorkoutPlan, weekdayOptions } from './workouts'
 
 const validCheckin = { status: 'completed' as const, planId: '', durationMinutes: '40', weightKg: '70.7', waistCm: '83.5', sleepHours: '7.2', energy: '4', soreness: '2', notes: '' }
 
@@ -76,7 +76,8 @@ describe('check-in history', () => {
 
 describe('workout plan validation', () => {
   it('keeps plan exercises complete before replacing the saved routine', () => {
-    expect(validateWorkoutPlan({ ...emptyWorkoutPlan(), name: '力量 A' })).toBe('请输入 1–80 字的动作名称')
+    expect(validateWorkoutPlan({ ...emptyWorkoutPlan(), name: '晚饭后慢走' })).toBe('')
     expect(validateWorkoutPlan({ ...emptyWorkoutPlan(), name: '力量 A', items: [{ exerciseName: '深蹲', sets: '3', repsMin: '8', repsMax: '12' }] })).toBe('')
+    expect(weekdayOptions.map(([value]) => value)).toEqual(['1', '2', '3', '4', '5', '6', '0'])
   })
 })

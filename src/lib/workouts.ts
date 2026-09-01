@@ -3,9 +3,11 @@ export type WorkoutPlanDraft = { name: string; weekday: string; durationMinutes:
 export type WorkoutPlan = WorkoutPlanDraft & { id: string }
 
 export const weekdayLabels = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+export const weekdayOrder = [1, 2, 3, 4, 5, 6, 0]
+export const weekdayOptions = weekdayOrder.map((day) => [String(day), weekdayLabels[day]])
 
 export function emptyWorkoutPlan(): WorkoutPlanDraft {
-  return { name: '', weekday: '1', durationMinutes: '40', isActive: true, items: [{ exerciseName: '', sets: '3', repsMin: '8', repsMax: '12' }] }
+  return { name: '', weekday: '1', durationMinutes: '30', isActive: true, items: [] }
 }
 
 export function validateWorkoutPlan(plan: WorkoutPlanDraft): string {
@@ -14,7 +16,7 @@ export function validateWorkoutPlan(plan: WorkoutPlanDraft): string {
   if (!plan.name.trim() || plan.name.trim().length > 80) return '请输入 1–80 字的计划名称'
   if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) return '请选择训练日'
   if (!Number.isInteger(duration) || duration < 1 || duration > 600) return '训练时长应在 1–600 分钟之间'
-  if (!plan.items.length || plan.items.length > 20) return '每个计划需要 1–20 个动作'
+  if (plan.items.length > 20) return '每个计划最多 20 个动作'
   for (const item of plan.items) {
     const sets = Number(item.sets)
     const repsMin = Number(item.repsMin)
